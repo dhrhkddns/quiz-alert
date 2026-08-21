@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">9급 전기직 기출 알림</string>
+    <string name="channel_name">퀴즈 알림</string>
+    <string name="notif_running">3분마다 기출 퀴즈가 켜집니다</string>
+</resources>

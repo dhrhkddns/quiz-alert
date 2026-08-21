@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+.env
+.env.*
+*.apk
+*.ap_
+local.properties
+.gradle/
+build/
+*.iml
+.idea/
+.DS_Store
+Thumbs.db
