@@ -591,11 +591,18 @@ EXTRA = [x for x in EXTRA if "Wait" not in x["explain"] and "skip" not in x["exp
 # Remove the broken one with "Wait"
 EXTRA = [x for x in EXTRA if "Wait" not in x["explain"] and "skip" not in x["explain"]]
 
+# 9급 전기직: 전기이론·전기기기만 유지
+def _electrical_only(item: dict) -> bool:
+    src = item.get("source", "")
+    return "전기이론" in src or "전기기기" in src
+
+EXTRA = [x for x in EXTRA if _electrical_only(x)]
+
 
 def main() -> None:
     path = HERE / "questions.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    existing = data["questions"]
+    existing = [q for q in data["questions"] if _electrical_only(q)]
     seen = {item["q"].strip() for item in existing}
     added = 0
     for item in EXTRA:
