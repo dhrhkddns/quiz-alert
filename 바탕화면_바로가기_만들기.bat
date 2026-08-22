@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal
 
 set "APP_DIR=%~dp0"
-set "TARGET=%APP_DIR%시작.bat"
+set "TARGET=%APP_DIR%업데이트_후_실행.bat"
 set "SHORTCUT_NAME=전기직 퀴즈 알림.lnk"
 
 rem 한글/영문 바탕화면 경로 모두 확인
