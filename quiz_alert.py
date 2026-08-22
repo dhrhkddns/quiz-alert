@@ -18,6 +18,7 @@ except ImportError:
 import tkinter as tk
 from tkinter import font as tkfont
 
+from mini_tips import MINI_TIPS
 from pixel_art import PixelSurf, render_visual
 
 APP_DIR = Path(__file__).resolve().parent
@@ -39,6 +40,8 @@ WRONG = "#ff5c7a"
 OK = "#3dd68c"
 BTN = "#222a3a"
 BTN_HOVER = "#2e3850"
+TIP_ROTATE_MS = 20_000
+TIP_ACCENT = "#f8d030"
 
 
 def enable_dpi_awareness() -> None:
@@ -121,6 +124,9 @@ class QuizAlertApp:
         self.next_at = 0.0
         self.keep_job: str | None = None
         self.tick_job: str | None = None
+        self.tip_job: str | None = None
+        self.tip_pool: list[str] = []
+        self.tip_index = 0
 
         self.overlay: tk.Toplevel | None = None
         self.source_label: tk.Label | None = None
@@ -159,17 +165,70 @@ class QuizAlertApp:
         self.wait.configure(bg=CARD)
         self.wait.withdraw()
 
-        wrap = tk.Frame(self.wait, bg=CARD, padx=14, pady=10)
+        wrap = tk.Frame(
+            self.wait,
+            bg=CARD,
+            padx=16,
+            pady=12,
+            highlightthickness=1,
+            highlightbackground=CARD_LINE,
+        )
         wrap.pack()
+
+        tk.Label(
+            wrap,
+            text="다음 기출",
+            fg=MUTED,
+            bg=CARD,
+            font=("Malgun Gothic", 9),
+        ).pack(anchor="center")
+
+        self.wait_time_label = tk.Label(
+            wrap,
+            text="00:00",
+            fg=TEXT,
+            bg=CARD,
+            font=("Consolas", 22, "bold"),
+        )
+        self.wait_time_label.pack(anchor="center", pady=(2, 6))
+
+        tip_box = tk.Frame(
+            wrap,
+            bg="#121826",
+            highlightthickness=1,
+            highlightbackground="#2f3b55",
+            padx=10,
+            pady=8,
+        )
+        tip_box.pack(fill="x", pady=(0, 8))
+
+        tk.Label(
+            tip_box,
+            text="깨알 공식",
+            fg=TIP_ACCENT,
+            bg="#121826",
+            font=("Malgun Gothic", 8, "bold"),
+        ).pack(anchor="w")
+
+        self.tip_label = tk.Label(
+            tip_box,
+            text="V = IR  ·  옴의 법칙",
+            fg=TIP_ACCENT,
+            bg="#121826",
+            wraplength=200,
+            justify="center",
+            font=("Consolas", 10),
+        )
+        self.tip_label.pack(anchor="center", pady=(4, 0))
 
         self.wait_label = tk.Label(
             wrap,
-            text="다음 기출 대기 중",
-            fg=TEXT,
+            text="정답 0  ·  오답 0",
+            fg=MUTED,
             bg=CARD,
-            font=("Malgun Gothic", 10),
+            font=("Malgun Gothic", 9),
         )
-        self.wait_label.pack(side="left", padx=(0, 12))
+        self.wait_label.pack(anchor="center", pady=(0, 8))
 
         quit_btn = tk.Button(
             wrap,
@@ -186,12 +245,11 @@ class QuizAlertApp:
             cursor="hand2",
             font=("Malgun Gothic", 9, "bold"),
         )
-        quit_btn.pack(side="left")
+        quit_btn.pack(anchor="center")
 
-        self.wait.bind("<ButtonPress-1>", self._start_move)
-        self.wait.bind("<B1-Motion>", self._on_move)
-        self.wait_label.bind("<ButtonPress-1>", self._start_move)
-        self.wait_label.bind("<B1-Motion>", self._on_move)
+        for widget in (self.wait, wrap, tip_box, self.wait_time_label, self.tip_label, self.wait_label):
+            widget.bind("<ButtonPress-1>", self._start_move)
+            widget.bind("<B1-Motion>", self._on_move)
 
     def _place_wait_bar(self) -> None:
         self.wait.update_idletasks()
@@ -225,6 +283,7 @@ class QuizAlertApp:
         if self.tick_job:
             self.root.after_cancel(self.tick_job)
             self.tick_job = None
+        self._stop_tip_rotation()
         self.wait.withdraw()
 
         item = self.next_question()
@@ -532,22 +591,59 @@ class QuizAlertApp:
         self.next_at = time.monotonic() + (self.interval_ms / 1000)
         self._place_wait_bar()
         self.wait.deiconify()
+        self._start_tip_rotation()
         self._tick_wait()
         self.root.after(self.interval_ms, self.show_quiz)
+
+    def _next_tip(self) -> str:
+        if not self.tip_pool or self.tip_index >= len(self.tip_pool):
+            self.tip_pool = list(MINI_TIPS)
+            random.shuffle(self.tip_pool)
+            self.tip_index = 0
+        tip = self.tip_pool[self.tip_index]
+        self.tip_index += 1
+        return tip
+
+    def _show_tip(self) -> None:
+        if self.quiz_open or not hasattr(self, "tip_label"):
+            return
+        self.tip_label.configure(text=self._next_tip())
+
+    def _start_tip_rotation(self) -> None:
+        self._stop_tip_rotation()
+        self.tip_pool = list(MINI_TIPS)
+        random.shuffle(self.tip_pool)
+        self.tip_index = 0
+        self._show_tip()
+        self.tip_job = self.root.after(TIP_ROTATE_MS, self._rotate_tip)
+
+    def _rotate_tip(self) -> None:
+        if self.quiz_open:
+            return
+        self._show_tip()
+        self.tip_job = self.root.after(TIP_ROTATE_MS, self._rotate_tip)
+
+    def _stop_tip_rotation(self) -> None:
+        if self.tip_job:
+            self.root.after_cancel(self.tip_job)
+            self.tip_job = None
 
     def _tick_wait(self) -> None:
         if self.quiz_open:
             return
         left = max(0, int(self.next_at - time.monotonic()))
         m, s = divmod(left, 60)
-        self.wait_label.configure(
-            text=f"다음 기출 {m:02d}:{s:02d}   ·   정답 {self.solved_count}  오답 {self.miss_count}"
-        )
+        self.wait_time_label.configure(text=f"{m:02d}:{s:02d}")
+        self.wait_label.configure(text=f"정답 {self.solved_count}  ·  오답 {self.miss_count}")
         self.tick_job = self.root.after(250, self._tick_wait)
 
     def quit_app(self) -> None:
         if self.quiz_open:
             return
+        self._stop_tip_rotation()
+        if self.tick_job:
+            self.root.after_cancel(self.tick_job)
+            self.tick_job = None
         self.root.destroy()
 
 
