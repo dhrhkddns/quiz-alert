@@ -1,6 +1,6 @@
 # 9급 전기직 기출 알림 퀴즈 — 바탕화면 바로가기 생성
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Target = Join-Path $AppDir "시작.bat"
+$Target = Join-Path $AppDir "업데이트_후_실행.bat"
 $ShortcutName = "전기직 퀴즈 알림.lnk"
 
 $DesktopCandidates = @(

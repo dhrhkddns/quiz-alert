@@ -1,3 +1,4 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
-start "" pythonw.exe "%~dp0quiz_alert.py"
+call "%~dp0업데이트_후_실행.bat"
