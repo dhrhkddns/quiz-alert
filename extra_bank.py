@@ -600,12 +600,15 @@ EXTRA = [x for x in EXTRA if _electrical_only(x)]
 
 
 def main() -> None:
+    from term_bank import TERM_QUESTIONS
+
+    all_extra = EXTRA + TERM_QUESTIONS
     path = HERE / "questions.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     existing = [q for q in data["questions"] if _electrical_only(q)]
     seen = {item["q"].strip() for item in existing}
     added = 0
-    for item in EXTRA:
+    for item in all_extra:
         key = item["q"].strip()
         if key in seen:
             continue
