@@ -581,6 +581,9 @@ MORE = [
     q("2024 국가직 9급 전기이론", "그림의 회로에서 전류 I가 최소가 되는 저항 R2[Ω]는? (R1+R2=10[Ω] 가변 분할)", ["0", "5", "7.5", "10"], 1, "병렬 합성이 최대일 때 전류 최소 → R1=R2=5"),
 ]
 
+from web_bank import WEB
+
+EXTRA.extend(WEB)
 EXTRA.extend(MORE)
 EXTRA = [x for x in EXTRA if "Wait" not in x["explain"] and "skip" not in x["explain"]]
 
