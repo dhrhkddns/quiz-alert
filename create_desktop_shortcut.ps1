@@ -20,7 +20,7 @@ $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = $Target
 $Shortcut.WorkingDirectory = $AppDir
-$Shortcut.Description = "9급 전기직 기출 알림 퀴즈"
+$Shortcut.Description = "9급 전기직 기출 알림 퀴즈 (QuizAlert.exe)"
 $Shortcut.Save()
 
 Write-Host "바탕화면에 바로가기를 만들었습니다: $ShortcutPath"
