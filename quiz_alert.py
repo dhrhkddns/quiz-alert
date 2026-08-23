@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
+import io
 import json
 import math
 import random
@@ -450,7 +452,7 @@ class QuizAlertApp:
         self.notes_text.delete("1.0", "end")
         self.explain_frame.pack_forget()
         self.notes_frame.pack_forget()
-        self.close_btn.pack_forget()
+        self.close_btn.place_forget()
 
         self._cover_all_screens()
         self.overlay.deiconify()
@@ -631,8 +633,8 @@ class QuizAlertApp:
         self.action_slot.pack(fill="x")
 
         self.close_btn = tk.Button(
-            self.action_slot,
-            text=f"해설 확인 후 닫기  ·  {self.interval_label} 뒤에 다시 출제",
+            win,
+            text=f"해설 확인 후 닫기\n{self.interval_label} 뒤에 다시 출제",
             command=self.close_quiz,
             bg=OK,
             fg="#0b0d12",
@@ -640,9 +642,10 @@ class QuizAlertApp:
             activeforeground="#0b0d12",
             relief="flat",
             bd=0,
-            padx=16,
-            pady=10,
+            padx=18,
+            pady=14,
             cursor="hand2",
+            justify="center",
             font=("Malgun Gothic", 12, "bold"),
         )
 
@@ -764,8 +767,15 @@ class QuizAlertApp:
         self.notes_text.delete("1.0", "end")
         self.explain_frame.pack(fill="x", pady=(12, 0), before=self.action_slot)
         self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
-        self.close_btn.pack(fill="x", pady=(12, 0))
+        self._place_close_btn()
         self.notes_text.focus_set()
+
+    def _place_close_btn(self) -> None:
+        """카드 높이와 상관없이 화면 오른쪽에 닫기 버튼을 고정한다."""
+        assert self.overlay is not None
+        assert self.close_btn is not None
+        self.overlay.update_idletasks()
+        self.close_btn.place(relx=1.0, rely=0.5, anchor="e", x=-28)
 
     def close_quiz(self) -> None:
         if not self.locked:
