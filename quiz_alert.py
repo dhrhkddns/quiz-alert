@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
-import ctypes
+import hashlib
 import json
+import math
 import random
+import struct
 import sys
 import time
+import wave
 
 try:
     import winsound
@@ -17,7 +20,7 @@ except ImportError:
 import tkinter as tk
 from tkinter import font as tkfont
 
-from app_paths import resolve_questions_path
+from app_paths import progress_path, resolve_questions_path
 from mini_tips import MINI_TIPS
 from pixel_art import PixelSurf, render_visual
 
@@ -27,6 +30,8 @@ SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_SHOWWINDOW = 0x0040
 ERROR_ALREADY_EXISTS = 183
+GWL_EXSTYLE = -20
+WS_EX_NOACTIVATE = 0x08000000
 
 BG = "#0b0d12"
 CARD = "#161b26"
@@ -100,11 +105,116 @@ def beep_alert() -> None:
         pass
 
 
+def beep_type() -> None:
+    """부드러운 타이핑 클릭음 (짧은 감쇠 사인파)."""
+    if winsound is None:
+        return
+    try:
+        winsound.PlaySound(
+            _soft_type_wav(),
+            winsound.SND_MEMORY | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
+        )
+    except Exception:
+        pass
+
+
+def _soft_type_wav() -> bytes:
+    if not hasattr(_soft_type_wav, "cache"):
+        rate = 22050
+        duration = 0.028
+        freq = 720.0 + random.uniform(-35, 35)
+        samples = int(rate * duration)
+        frames = bytearray()
+        for i in range(samples):
+            t = i / rate
+            env = math.exp(-t * 95)
+            sample = int(6200 * env * math.sin(2 * math.pi * freq * t))
+            frames += struct.pack("<h", max(-32767, min(32767, sample)))
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(frames)
+        _soft_type_wav.cache = buf.getvalue()  # type: ignore[attr-defined]
+    return _soft_type_wav.cache  # type: ignore[attr-defined]
+
+
+def set_window_no_activate(hwnd: int) -> None:
+    """클릭해도 다른 창/탭 포커스를 빼앗지 않게 한다."""
+    if sys.platform != "win32" or not hwnd:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE)
+    except Exception:
+        pass
+
+
+def question_key(item: dict) -> str:
+    return str(item.get("q", "")).strip()
+
+
+def dedupe_questions(questions: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for item in questions:
+        key = question_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def bank_signature(questions: list[dict]) -> str:
+    blob = "\n".join(sorted(question_key(q) for q in questions))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:20]
+
+
+def load_question_pool(questions: list[dict]) -> list[dict]:
+    """남은 문제 풀을 복원한다. 전부 소진하기 전까지 같은 문제는 다시 나오지 않는다."""
+    path = progress_path()
+    key_to_item = {question_key(q): q for q in questions}
+    sig = bank_signature(questions)
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("bank_sig") == sig:
+                saved = data.get("remaining") or []
+                pool = [key_to_item[k] for k in saved if k in key_to_item]
+                if pool:
+                    return pool
+        except Exception:
+            pass
+    pool = list(questions)
+    random.shuffle(pool)
+    save_question_pool(pool, questions)
+    return pool
+
+
+def save_question_pool(remaining: list[dict], questions: list[dict]) -> None:
+    try:
+        progress_path().write_text(
+            json.dumps(
+                {
+                    "bank_sig": bank_signature(questions),
+                    "remaining": [question_key(q) for q in remaining],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
 def load_config() -> tuple[int, list[dict]]:
     data = json.loads(resolve_questions_path().read_text(encoding="utf-8"))
     minutes = float(data.get("interval_minutes", 3))
     interval_ms = max(10, int(minutes * 60 * 1000))
-    questions = data.get("questions") or []
+    questions = dedupe_questions(data.get("questions") or [])
     if not questions:
         raise ValueError("questions.json 에 문제가 없습니다.")
     return interval_ms, questions
@@ -115,7 +225,7 @@ class QuizAlertApp:
         self.root = root
         self.interval_ms, self.questions = load_config()
         self.interval_label = self._format_interval()
-        self.remaining: list[dict] = []
+        self.remaining: list[dict] = load_question_pool(self.questions)
         self.quiz_open = False
         self.solved_count = 0
         self.miss_count = 0
@@ -135,6 +245,8 @@ class QuizAlertApp:
         self.choice_buttons: list[tk.Button] = []
         self.explain_frame: tk.Frame | None = None
         self.explain_text: tk.Text | None = None
+        self.notes_frame: tk.Frame | None = None
+        self.notes_text: tk.Text | None = None
         self.close_btn: tk.Button | None = None
         self.current_item: dict | None = None
         self.current_answer = 0
@@ -142,7 +254,8 @@ class QuizAlertApp:
 
         self._setup_root()
         self._setup_wait_bar()
-        self.root.after(400, self.show_quiz)
+        # 시작 직후 대기 없이 바로 1문제 표시
+        self.root.after_idle(self.show_quiz)
 
     def _format_interval(self) -> str:
         seconds = self.interval_ms / 1000
@@ -245,9 +358,24 @@ class QuizAlertApp:
         )
         quit_btn.pack(anchor="center")
 
-        for widget in (self.wait, wrap, tip_box, self.wait_time_label, self.tip_label, self.wait_label):
-            widget.bind("<ButtonPress-1>", self._start_move)
-            widget.bind("<B1-Motion>", self._on_move)
+        def _ignore_wait_click(_event: tk.Event) -> str:
+            return "break"
+
+        for widget in (
+            self.wait,
+            wrap,
+            tip_box,
+            self.wait_time_label,
+            self.tip_label,
+            self.wait_label,
+        ):
+            widget.bind("<Button-1>", _ignore_wait_click)
+            widget.bind("<ButtonPress-1>", _ignore_wait_click)
+            widget.bind("<ButtonRelease-1>", _ignore_wait_click)
+
+    def _apply_wait_bar_style(self) -> None:
+        self.wait.update_idletasks()
+        set_window_no_activate(self.wait.winfo_id())
 
     def _place_wait_bar(self) -> None:
         self.wait.update_idletasks()
@@ -257,21 +385,15 @@ class QuizAlertApp:
         x = sw - w - 24
         y = 24
         self.wait.geometry(f"{w}x{h}+{x}+{y}")
-
-    def _start_move(self, event: tk.Event) -> None:
-        self._drag_x = event.x_root - self.wait.winfo_x()
-        self._drag_y = event.y_root - self.wait.winfo_y()
-
-    def _on_move(self, event: tk.Event) -> None:
-        x = event.x_root - self._drag_x
-        y = event.y_root - self._drag_y
-        self.wait.geometry(f"+{x}+{y}")
+        self._apply_wait_bar_style()
 
     def next_question(self) -> dict:
         if not self.remaining:
             self.remaining = list(self.questions)
             random.shuffle(self.remaining)
-        return self.remaining.pop()
+        item = self.remaining.pop()
+        save_question_pool(self.remaining, self.questions)
+        return item
 
     def show_quiz(self) -> None:
         if self.quiz_open:
@@ -296,6 +418,8 @@ class QuizAlertApp:
         assert self.feedback is not None
         assert self.explain_frame is not None
         assert self.explain_text is not None
+        assert self.notes_frame is not None
+        assert self.notes_text is not None
         assert self.close_btn is not None
 
         self.source_label.configure(text=item.get("source", "9급 전기직 기출"))
@@ -323,7 +447,9 @@ class QuizAlertApp:
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
         self.explain_text.configure(state="disabled")
+        self.notes_text.delete("1.0", "end")
         self.explain_frame.pack_forget()
+        self.notes_frame.pack_forget()
         self.close_btn.pack_forget()
 
         self._cover_all_screens()
@@ -460,7 +586,7 @@ class QuizAlertApp:
         head.pack(anchor="w", padx=12, pady=(10, 0))
         self.explain_text = tk.Text(
             self.explain_frame,
-            height=7,
+            height=5,
             width=78,
             wrap="word",
             bg="#121826",
@@ -473,6 +599,33 @@ class QuizAlertApp:
         )
         self.explain_text.pack(fill="both", expand=True)
         self.explain_text.configure(state="disabled")
+
+        self.notes_frame = tk.Frame(card, bg="#10161f", highlightthickness=1, highlightbackground="#3a465e")
+        notes_head = tk.Label(
+            self.notes_frame,
+            text="직접 타이핑 · 필기",
+            fg=ACCENT,
+            bg="#10161f",
+            font=("Malgun Gothic", 10, "bold"),
+        )
+        notes_head.pack(anchor="w", padx=12, pady=(10, 0))
+        self.notes_text = tk.Text(
+            self.notes_frame,
+            height=4,
+            width=78,
+            wrap="word",
+            bg="#10161f",
+            fg=TEXT,
+            insertbackground=ACCENT,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=8,
+            font=("Malgun Gothic", 11),
+            undo=True,
+        )
+        self.notes_text.pack(fill="both", expand=True, pady=(0, 4))
+        self.notes_text.bind("<KeyPress>", self._on_notes_key)
 
         self.action_slot = tk.Frame(card, bg=CARD)
         self.action_slot.pack(fill="x")
@@ -518,7 +671,39 @@ class QuizAlertApp:
             return
         self.keep_job = self.root.after(500, self._keep_on_top)
 
+    def _notes_has_focus(self) -> bool:
+        if self.notes_text is None:
+            return False
+        try:
+            return self.root.focus_get() is self.notes_text
+        except tk.TclError:
+            return False
+
+    def _on_notes_key(self, event: tk.Event) -> None:
+        skip = {
+            "Shift_L",
+            "Shift_R",
+            "Control_L",
+            "Control_R",
+            "Alt_L",
+            "Alt_R",
+            "Caps_Lock",
+            "Hangul",
+            "Hanja",
+            "Win_L",
+            "Win_R",
+            "Escape",
+        }
+        if event.keysym in skip:
+            return
+        if event.char or event.keysym in ("BackSpace", "Delete", "Return", "Tab", "space", "Left", "Right", "Up", "Down"):
+            if event.keysym in ("Left", "Right", "Up", "Down"):
+                return
+            beep_type()
+
     def _on_key(self, event: tk.Event) -> str | None:
+        if self._notes_has_focus():
+            return None
         if self.locked and event.keysym in ("Return", "space"):
             self.close_quiz()
             return "break"
@@ -568,14 +753,19 @@ class QuizAlertApp:
     def _show_explain(self) -> None:
         assert self.explain_frame is not None
         assert self.explain_text is not None
+        assert self.notes_frame is not None
+        assert self.notes_text is not None
         assert self.close_btn is not None
         text = (self.current_item or {}).get("explain") or "해설이 없습니다."
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
         self.explain_text.insert("1.0", text)
         self.explain_text.configure(state="disabled")
+        self.notes_text.delete("1.0", "end")
         self.explain_frame.pack(fill="x", pady=(12, 0), before=self.action_slot)
+        self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
         self.close_btn.pack(fill="x", pady=(12, 0))
+        self.notes_text.focus_set()
 
     def close_quiz(self) -> None:
         if not self.locked:
@@ -589,6 +779,7 @@ class QuizAlertApp:
         self.next_at = time.monotonic() + (self.interval_ms / 1000)
         self._place_wait_bar()
         self.wait.deiconify()
+        self._apply_wait_bar_style()
         self._start_tip_rotation()
         self._tick_wait()
         self.root.after(self.interval_ms, self.show_quiz)

@@ -36,6 +36,13 @@ android {
     }
 }
 
+val copyQuestions by tasks.registering(Copy::class) {
+    from(rootProject.file("../questions.json"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild").configure { dependsOn(copyQuestions) }
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")

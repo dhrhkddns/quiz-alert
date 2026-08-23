@@ -2,13 +2,18 @@ package com.quizalert.electrical
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -24,15 +29,15 @@ class OverlayManager(private val context: Context) {
     private var waitView: View? = null
     private var locked = false
     private var current: Question? = null
+    private var typeTone: ToneGenerator? = null
 
     fun showQuiz() {
         hideWait()
-        if (quizView != null) return
+        hideQuiz()
         locked = false
         val q = QuestionBank.next()
         current = q
         val view = inflater.inflate(R.layout.overlay_quiz, null)
-        quizView = view
         view.isFocusableInTouchMode = true
         view.setOnKeyListener { _, code, event ->
             if (event.action == KeyEvent.ACTION_UP &&
@@ -54,9 +59,14 @@ class OverlayManager(private val context: Context) {
         val feedback = view.findViewById<TextView>(R.id.feedbackText)
         val explainBox = view.findViewById<View>(R.id.explainBox)
         val explainText = view.findViewById<TextView>(R.id.explainText)
+        val notesBox = view.findViewById<View>(R.id.notesBox)
+        val notesInput = view.findViewById<EditText>(R.id.notesInput)
         val close = view.findViewById<Button>(R.id.closeButton)
         explainBox.visibility = View.GONE
+        notesBox.visibility = View.GONE
         close.visibility = View.GONE
+        notesInput.setText("")
+        bindTypingSound(notesInput)
 
         q.choices.forEachIndexed { idx, text ->
             val btn = Button(context).apply {
@@ -66,7 +76,9 @@ class OverlayManager(private val context: Context) {
                 setTextColor(ContextCompat.getColor(context, R.color.text))
                 textAlignment = View.TEXT_ALIGNMENT_TEXT_START
                 setPadding(28, 22, 28, 22)
-                setOnClickListener { tryAnswer(idx, this, box, feedback, explainBox, explainText, close) }
+                setOnClickListener {
+                    tryAnswer(idx, this, box, feedback, explainBox, explainText, notesBox, notesInput, close)
+                }
             }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -96,8 +108,24 @@ class OverlayManager(private val context: Context) {
             PixelFormat.TRANSLUCENT,
         )
         params.gravity = Gravity.CENTER
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         wm.addView(view, params)
+        quizView = view
         view.requestFocus()
+    }
+
+    private fun bindTypingSound(notesInput: EditText) {
+        typeTone?.release()
+        typeTone = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 35) }.getOrNull()
+        notesInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (count > 0 || before > 0) {
+                    runCatching { typeTone?.startTone(ToneGenerator.TONE_DTMF_1, 12) }
+                }
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
     }
 
     private fun tryAnswer(
@@ -107,6 +135,8 @@ class OverlayManager(private val context: Context) {
         feedback: TextView,
         explainBox: View,
         explainText: TextView,
+        notesBox: View,
+        notesInput: EditText,
         close: Button,
     ) {
         val q = current ?: return
@@ -121,7 +151,9 @@ class OverlayManager(private val context: Context) {
             feedback.text = "정답입니다. 해설을 읽고 닫으면 3분 뒤에 다시 나옵니다."
             explainText.text = q.explain
             explainBox.visibility = View.VISIBLE
+            notesBox.visibility = View.VISIBLE
             close.visibility = View.VISIBLE
+            notesInput.requestFocus()
         } else {
             onSolved?.invoke(false)
             clicked.setBackgroundColor(ContextCompat.getColor(context, R.color.wrong))
@@ -187,6 +219,8 @@ class OverlayManager(private val context: Context) {
         quizView = null
         current = null
         locked = false
+        typeTone?.release()
+        typeTone = null
     }
 
     fun destroy() {

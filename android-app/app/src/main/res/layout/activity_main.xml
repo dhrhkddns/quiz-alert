@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:gravity="center"
-        android:text="다른 앱을 쓰다가도 3분마다 퀴즈가 뜹니다.\n정답을 맞히고 해설을 봐야 창이 닫힙니다."
+        android:text="시작 누르면 바로 한 문제가 뜹니다.\n이후 3분마다 다시 출제됩니다."
         android:textColor="@color/text"
         android:textSize="18sp"
         android:textStyle="bold" />

@@ -61,12 +61,7 @@ if not errorlevel 1 (
 echo.
 
 echo [3/3] 퀴즈 알림 실행...
-call :ensure_exe
-if exist "%EXE%" (
-    start "" "%EXE%"
-    goto :launched
-)
-
+REM 로컬 소스 수정이 바로 반영되도록 파이썬을 우선 실행
 where pythonw >nul 2>&1
 if not errorlevel 1 (
     start "" pythonw.exe "%~dp0quiz_alert.py"
@@ -76,6 +71,18 @@ if not errorlevel 1 (
 where python >nul 2>&1
 if not errorlevel 1 (
     start "" python "%~dp0quiz_alert.py"
+    goto :launched
+)
+
+where py >nul 2>&1
+if not errorlevel 1 (
+    start "" py -3 "%~dp0quiz_alert.py"
+    goto :launched
+)
+
+call :ensure_exe
+if exist "%EXE%" (
+    start "" "%EXE%"
     goto :launched
 )
 
@@ -89,10 +96,8 @@ exit /b 1
 
 :launched
 echo.
-echo 실행했습니다. 화면 오른쪽 위 카드에서
-echo  - 남은 시간
-echo  - 깨알 공식 (20초마다 변경)
-echo 을 확인하세요.
+echo 실행했습니다. 곧바로 퀴즈 한 문제가 뜹니다.
+echo 맞히고 닫으면 오른쪽 위 카드에서 다음 출제까지 남은 시간을 볼 수 있습니다.
 echo.
 timeout /t 4 /nobreak >nul
 exit /b 0

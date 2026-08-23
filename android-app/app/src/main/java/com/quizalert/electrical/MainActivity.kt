@@ -46,9 +46,14 @@ class MainActivity : AppCompatActivity() {
             openOverlaySettings()
             return
         }
+        QuestionBank.load(this)
+        if (QuestionBank.size == 0) {
+            Toast.makeText(this, "문제 은행을 불러오지 못했습니다. 앱을 다시 빌드해 주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
         QuizService.start(this)
         refresh()
-        Toast.makeText(this, "퀴즈를 시작했습니다. 홈으로 나가도 창이 유지됩니다.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "바로 퀴즈가 뜹니다. 홈으로 나가도 창이 유지됩니다.", Toast.LENGTH_LONG).show()
     }
 
     private fun openOverlaySettings() {

@@ -99,6 +99,38 @@
                     android:textSize="13sp" />
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/notesBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="#10161F"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="직접 타이핑 · 필기"
+                    android:textColor="@color/accent"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/notesInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@android:color/transparent"
+                    android:gravity="top|start"
+                    android:hint="여기에 직접 적어 보세요"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:minLines="3"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/muted"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
             <Button
                 android:id="@+id/closeButton"
                 android:layout_width="match_parent"

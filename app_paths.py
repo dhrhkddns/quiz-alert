@@ -30,3 +30,7 @@ def resolve_questions_path() -> Path:
     if external.is_file():
         return external
     return bundled_dir() / "questions.json"
+
+
+def progress_path() -> Path:
+    return app_dir() / ".quiz_progress.json"

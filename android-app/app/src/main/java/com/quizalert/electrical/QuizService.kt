@@ -43,7 +43,8 @@ class QuizService : Service() {
         startForeground(NOTIF_ID, buildNotification())
         prefs(this).edit().putBoolean(KEY_RUNNING, true).apply()
         handler.removeCallbacksAndMessages(null)
-        overlay.showQuiz()
+        // 시작 직후 대기하지 않고 바로 1문제 표시
+        handler.post { overlay.showQuiz() }
         return START_STICKY
     }
 
