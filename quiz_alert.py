@@ -235,6 +235,7 @@ class QuizAlertApp:
         self.keep_job: str | None = None
         self.tick_job: str | None = None
         self.tip_job: str | None = None
+        self.show_job: str | None = None
         self.tip_pool: list[str] = []
         self.tip_index = 0
 
@@ -343,8 +344,28 @@ class QuizAlertApp:
         )
         self.wait_label.pack(anchor="center", pady=(0, 8))
 
+        btn_row = tk.Frame(wrap, bg=CARD)
+        btn_row.pack(anchor="center")
+
+        now_btn = tk.Button(
+            btn_row,
+            text="바로 풀기",
+            command=self.start_quiz_now,
+            bg="#24304a",
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=2,
+            cursor="hand2",
+            font=("Malgun Gothic", 9, "bold"),
+        )
+        now_btn.pack(side="left", padx=(0, 6))
+
         quit_btn = tk.Button(
-            wrap,
+            btn_row,
             text="종료",
             command=self.quit_app,
             bg="#3a2430",
@@ -358,7 +379,7 @@ class QuizAlertApp:
             cursor="hand2",
             font=("Malgun Gothic", 9, "bold"),
         )
-        quit_btn.pack(anchor="center")
+        quit_btn.pack(side="left")
 
         def _ignore_wait_click(_event: tk.Event) -> str:
             return "break"
@@ -402,6 +423,7 @@ class QuizAlertApp:
             return
         self.quiz_open = True
         self.locked = False
+        self._cancel_show_job()
         if self.tick_job:
             self.root.after_cancel(self.tick_job)
             self.tick_job = None
@@ -792,7 +814,18 @@ class QuizAlertApp:
         self._apply_wait_bar_style()
         self._start_tip_rotation()
         self._tick_wait()
-        self.root.after(self.interval_ms, self.show_quiz)
+        self.show_job = self.root.after(self.interval_ms, self.show_quiz)
+
+    def start_quiz_now(self) -> None:
+        if self.quiz_open:
+            return
+        self._cancel_show_job()
+        self.show_quiz()
+
+    def _cancel_show_job(self) -> None:
+        if self.show_job:
+            self.root.after_cancel(self.show_job)
+            self.show_job = None
 
     def _next_tip(self) -> str:
         if not self.tip_pool or self.tip_index >= len(self.tip_pool):
@@ -840,6 +873,7 @@ class QuizAlertApp:
         if self.quiz_open:
             return
         self._stop_tip_rotation()
+        self._cancel_show_job()
         if self.tick_job:
             self.root.after_cancel(self.tick_job)
             self.tick_job = None
