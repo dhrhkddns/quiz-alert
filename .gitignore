@@ -11,6 +11,8 @@ venv/
 local.properties
 .gradle/
 build/
+dist/
+QuizAlert.exe
 *.iml
 .idea/
 .DS_Store

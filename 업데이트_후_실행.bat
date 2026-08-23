@@ -1,75 +1,93 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+setlocal EnableDelayedExpansion
+
+set "EXE=%~dp0QuizAlert.exe"
+set "EXE_URL=https://github.com/dhrhkddns/quiz-alert/releases/latest/download/QuizAlert.exe"
 
 echo ========================================
-echo  9급 전기직 기출 알림 - 업데이트 후 실행
+echo  9급 전기직 기출 알림
 echo ========================================
 echo.
 
-if not exist ".git" (
-    echo [오류] 이 폴더는 git 저장소가 아닙니다.
-    echo zip으로 받으셨다면 아래로 다시 받으세요:
-    echo   git clone https://github.com/dhrhkddns/quiz-alert.git
-    echo.
-    pause
-    exit /b 1
-)
+if exist ".git" (
+    where git >nul 2>&1
+    if not errorlevel 1 (
+        echo [현재 버전]
+        git log -1 --oneline 2>nul
+        echo.
+        echo 실행 중인 퀴즈가 있으면 오른쪽 위 막대 [종료]를 눌러 주세요.
+        echo 3초 후 업데이트를 시작합니다...
+        timeout /t 3 /nobreak >nul
+        echo.
 
-where git >nul 2>&1
-if errorlevel 1 (
-    echo [오류] git이 설치되어 있지 않습니다.
-    echo https://git-scm.com/download/win 에서 설치 후 다시 실행하세요.
-    echo.
-    pause
-    exit /b 1
+        echo [1/3] 최신 코드 받는 중...
+        git fetch origin main
+        if errorlevel 1 (
+            echo git fetch 실패. 인터넷 연결을 확인하세요.
+            echo 이미 받은 파일로 실행을 계속합니다.
+        ) else (
+            git pull origin main
+            if errorlevel 1 (
+                echo git pull 실패. 로컬 변경이 있으면 아래를 실행해 보세요:
+                echo   git stash
+                echo   git pull origin main
+                echo 이미 받은 파일로 실행을 계속합니다.
+            )
+        )
+        echo.
+        git log -1 --oneline 2>nul
+        echo.
+    ) else (
+        echo git이 없어 코드 업데이트를 건너뜁니다.
+        echo.
+    )
 )
-
-echo [현재 버전]
-git log -1 --oneline 2>nul
-echo.
-echo 실행 중인 퀴즈가 있으면 오른쪽 위 막대 [종료]를 눌러 주세요.
-echo 3초 후 업데이트를 시작합니다...
-timeout /t 3 /nobreak >nul
-echo.
-
-echo [1/3] 최신 코드 받는 중...
-git fetch origin main
-if errorlevel 1 (
-    echo git fetch 실패. 인터넷 연결을 확인하세요.
-    pause
-    exit /b 1
-)
-git pull origin main
-if errorlevel 1 (
-    echo.
-    echo git pull 실패. 로컬 변경이 있으면 아래를 실행해 보세요:
-    echo   git stash
-    echo   git pull origin main
-    echo.
-    pause
-    exit /b 1
-)
-
-echo.
-echo [업데이트 완료]
-git log -1 --oneline
-echo.
 
 echo [2/3] 문제 은행 갱신 중...
-python extra_bank.py 2>nul
-if errorlevel 1 (
-    python3 extra_bank.py 2>nul
+where python >nul 2>&1
+if not errorlevel 1 (
+    python extra_bank.py 2>nul
+) else (
+    where python3 >nul 2>&1
+    if not errorlevel 1 (
+        python3 extra_bank.py 2>nul
+    ) else (
+        echo 파이썬이 없어 문제 은행 스크립트는 건너뜁니다.
+        echo exe 옆의 questions.json 또는 exe에 들어 있는 문제를 사용합니다.
+    )
 )
+echo.
 
 echo [3/3] 퀴즈 알림 실행...
-where pythonw >nul 2>&1
-if errorlevel 1 (
-    start "" python "%~dp0quiz_alert.py"
-) else (
-    start "" pythonw.exe "%~dp0quiz_alert.py"
+call :ensure_exe
+if exist "%EXE%" (
+    start "" "%EXE%"
+    goto :launched
 )
 
+where pythonw >nul 2>&1
+if not errorlevel 1 (
+    start "" pythonw.exe "%~dp0quiz_alert.py"
+    goto :launched
+)
+
+where python >nul 2>&1
+if not errorlevel 1 (
+    start "" python "%~dp0quiz_alert.py"
+    goto :launched
+)
+
+echo.
+echo [오류] QuizAlert.exe 도 파이썬도 없습니다.
+echo 아래 주소에서 QuizAlert.exe 를 받아 이 폴더에 두고 다시 실행하세요.
+echo   https://github.com/dhrhkddns/quiz-alert/releases/latest
+echo.
+pause
+exit /b 1
+
+:launched
 echo.
 echo 실행했습니다. 화면 오른쪽 위 카드에서
 echo  - 남은 시간
@@ -77,3 +95,29 @@ echo  - 깨알 공식 (20초마다 변경)
 echo 을 확인하세요.
 echo.
 timeout /t 4 /nobreak >nul
+exit /b 0
+
+:ensure_exe
+if exist "%EXE%" exit /b 0
+echo QuizAlert.exe 가 없어 최신 실행 파일을 받는 중...
+if exist "%EXE%.tmp" del /q "%EXE%.tmp"
+where curl >nul 2>&1
+if not errorlevel 1 (
+    curl.exe -L --fail -o "%EXE%.tmp" "%EXE_URL%"
+    if not errorlevel 1 if exist "%EXE%.tmp" (
+        move /y "%EXE%.tmp" "%EXE%" >nul
+        echo 다운로드 완료.
+        exit /b 0
+    )
+)
+if exist "%EXE%.tmp" del /q "%EXE%.tmp"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "try { Invoke-WebRequest -UseBasicParsing -Uri '%EXE_URL%' -OutFile '%EXE%.tmp' } catch { exit 1 }"
+if exist "%EXE%.tmp" (
+    move /y "%EXE%.tmp" "%EXE%" >nul
+    echo 다운로드 완료.
+    exit /b 0
+)
+echo 실행 파일 다운로드에 실패했습니다.
+echo 최신 exe가 필요하면 QuizAlert.exe 를 지운 뒤 다시 실행하세요.
+exit /b 1

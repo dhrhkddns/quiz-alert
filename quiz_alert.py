@@ -8,7 +8,6 @@ import json
 import random
 import sys
 import time
-from pathlib import Path
 
 try:
     import winsound
@@ -18,11 +17,10 @@ except ImportError:
 import tkinter as tk
 from tkinter import font as tkfont
 
+from app_paths import resolve_questions_path
 from mini_tips import MINI_TIPS
 from pixel_art import PixelSurf, render_visual
 
-APP_DIR = Path(__file__).resolve().parent
-QUESTIONS_PATH = APP_DIR / "questions.json"
 MUTEX_NAME = "Local\\QuizAlertSingleInstance"
 HWND_TOPMOST = -1
 SWP_NOMOVE = 0x0002
@@ -103,7 +101,7 @@ def beep_alert() -> None:
 
 
 def load_config() -> tuple[int, list[dict]]:
-    data = json.loads(QUESTIONS_PATH.read_text(encoding="utf-8"))
+    data = json.loads(resolve_questions_path().read_text(encoding="utf-8"))
     minutes = float(data.get("interval_minutes", 3))
     interval_ms = max(10, int(minutes * 60 * 1000))
     questions = data.get("questions") or []
@@ -647,6 +645,16 @@ class QuizAlertApp:
         self.root.destroy()
 
 
+def show_error(message: str) -> None:
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.user32.MessageBoxW(None, message, "9급 전기직 기출 알림", 0x10)
+            return
+        except Exception:
+            pass
+    print(message, file=sys.stderr)
+
+
 def main() -> None:
     enable_dpi_awareness()
     if not ensure_single_instance():
@@ -657,14 +665,20 @@ def main() -> None:
             0x40,
         )
         return
-    if not QUESTIONS_PATH.exists():
-        raise SystemExit(f"문제 파일이 없습니다: {QUESTIONS_PATH}")
+    questions = resolve_questions_path()
+    if not questions.is_file():
+        show_error(f"문제 파일이 없습니다.\n{questions}")
+        raise SystemExit(f"문제 파일이 없습니다: {questions}")
 
-    root = tk.Tk()
-    default = tkfont.nametofont("TkDefaultFont")
-    default.configure(family="Malgun Gothic", size=10)
-    QuizAlertApp(root)
-    root.mainloop()
+    try:
+        root = tk.Tk()
+        default = tkfont.nametofont("TkDefaultFont")
+        default.configure(family="Malgun Gothic", size=10)
+        QuizAlertApp(root)
+        root.mainloop()
+    except Exception as exc:
+        show_error(f"실행 중 오류가 났습니다.\n{exc}")
+        raise
 
 
 if __name__ == "__main__":

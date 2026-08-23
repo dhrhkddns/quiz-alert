@@ -24,7 +24,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
    $sc = $ws.CreateShortcut('%SHORTCUT%'); ^
    $sc.TargetPath = '%TARGET%'; ^
    $sc.WorkingDirectory = '%APP_DIR%'; ^
-   $sc.Description = '9급 전기직 기출 알림 퀴즈'; ^
+   $sc.Description = '9급 전기직 기출 알림 퀴즈 (QuizAlert.exe)'; ^
    $sc.Save()"
 
 if exist "%SHORTCUT%" (
