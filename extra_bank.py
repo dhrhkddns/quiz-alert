@@ -601,6 +601,7 @@ EXTRA = [x for x in EXTRA if _electrical_only(x)]
 
 def main() -> None:
     from term_bank import TERM_QUESTIONS
+    from enrich_explain import enrich_item
 
     all_extra = EXTRA + TERM_QUESTIONS
     path = HERE / "questions.json"
@@ -617,10 +618,20 @@ def main() -> None:
         existing.append(item)
         seen.add(key)
         added += 1
+    try:
+        from web_explains import WEB_EXPLAINS
+    except ImportError:
+        WEB_EXPLAINS = {}
+    enriched = 0
+    for i, item in enumerate(existing):
+        before = item.get("explain", "")
+        existing[i] = enrich_item(item, WEB_EXPLAINS)
+        if existing[i].get("explain") != before:
+            enriched += 1
     data["questions"] = existing
     data["interval_minutes"] = 3
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"added {added}, total {len(existing)}")
+    print(f"added {added}, enriched {enriched}, total {len(existing)}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from extra_bank import q
 
+from explain_builder import build_term_explain
+
 TERM_DEFINITIONS: list[tuple[str, str, str]] = [
     ('쿨롱의 법칙', '전기이론', '두 점전하 사이 정전기력은 전하량의 곱에 비례하고 거리 제곱에 반비례한다.'),
     ('가우스 법칙', '전기이론', '폐곡면을 통과하는 전기선속의 총합은 그 내부의 총전하량을 유전율로 나눈 값과 같다.'),
@@ -224,7 +226,7 @@ def _build_questions() -> list[dict]:
         rng.shuffle(choices)
         answer = choices.index(correct)
         question = f"「{term}」의 설명으로 옳은 것은?"
-        explain = f"{term}: {correct}"
+        explain = build_term_explain(term, correct, choices, answer)
         questions.append(q(source, question, choices, answer, explain))
     return questions
 
