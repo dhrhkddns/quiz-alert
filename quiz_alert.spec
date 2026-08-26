@@ -9,7 +9,7 @@ a = Analysis(
         ("questions.json", "."),
         ("exam_images", "exam_images"),
     ],
-    hiddenimports=["app_paths", "mini_tips", "pixel_art"],
+    hiddenimports=["app_paths", "mini_tips", "pixel_art", "PIL", "PIL.Image", "PIL.ImageTk"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -26,6 +26,12 @@ from app_paths import progress_path, resolve_media_path, resolve_questions_path
 from mini_tips import MINI_TIPS
 from pixel_art import PixelSurf, render_visual
 
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = None  # type: ignore[assignment, misc]
+    ImageTk = None  # type: ignore[assignment, misc]
+
 MUTEX_NAME = "Local\\QuizAlertSingleInstance"
 HWND_TOPMOST = -1
 SWP_NOMOVE = 0x0002
@@ -244,6 +250,9 @@ class QuizAlertApp:
         self.pixel_surf: PixelSurf | None = None
         self.art_wrap: tk.Frame | None = None
         self.caption_label: tk.Label | None = None
+        self.body_row: tk.Frame | None = None
+        self.left_pane: tk.Frame | None = None
+        self.right_pane: tk.Frame | None = None
         self.question_label: tk.Label | None = None
         self.question_image_label: tk.Label | None = None
         self.explain_image_label: tk.Label | None = None
@@ -261,6 +270,7 @@ class QuizAlertApp:
         self.pending_choice: int | None = None
         self._photo_q: object | None = None
         self._photo_a: object | None = None
+        self._split_layout = False
         self._card_wraplength = 720
 
         self._setup_root()
@@ -432,13 +442,38 @@ class QuizAlertApp:
             return False
         return bool(item.get("image_mode") or item.get("q_image"))
 
+    def _image_max_size(self, *, pane: str = "single") -> tuple[int, int]:
+        """화면 기준으로 잘리지 않게 맞출 최대 가로·세로. pane=left/right 는 좌우 분할용."""
+        sw = max(640, self.root.winfo_screenwidth())
+        sh = max(480, self.root.winfo_screenheight())
+        if pane in ("left", "right", "split"):
+            # 좌·우 각각 ~44% 폭, 세로 ~62% — 문제/해설을 크게 나란히 표시
+            return max(420, int(sw * 0.44)), max(360, int(sh * 0.62))
+        return max(640, int(sw * 0.78)), max(280, int(sh * 0.42))
+
     def _load_photo(self, relative: str | None, max_w: int, max_h: int):
-        """PNG 이미지를 Tk PhotoImage 로 로드·축소한다 (Pillow 불필요)."""
+        """이미지를 비율 유지로 max 박스 안에 맞춘다 (자르지 않음). Pillow 우선."""
         if not relative:
             return None
         path = resolve_media_path(relative)
         if path is None:
             return None
+        if Image is not None and ImageTk is not None:
+            try:
+                with Image.open(path) as src:
+                    im = src.convert("RGBA") if src.mode in ("P", "LA", "RGBA") else src.convert("RGB")
+                    w, h = im.size
+                    if w <= 0 or h <= 0:
+                        return None
+                    scale = min(max_w / w, max_h / h, 1.0)
+                    if scale < 1.0:
+                        im = im.resize(
+                            (max(1, int(w * scale)), max(1, int(h * scale))),
+                            Image.Resampling.LANCZOS,
+                        )
+                    return ImageTk.PhotoImage(im)
+            except Exception:
+                pass
         try:
             img = tk.PhotoImage(file=str(path))
             w, h = img.width(), img.height()
@@ -452,6 +487,33 @@ class QuizAlertApp:
             return None
         except Exception:
             return None
+
+    def _apply_wraplengths(self, wrap: int) -> None:
+        self._card_wraplength = wrap
+        if self.caption_label is not None:
+            self.caption_label.configure(wraplength=wrap)
+        if self.question_label is not None:
+            self.question_label.configure(wraplength=wrap)
+        if self.feedback is not None:
+            self.feedback.configure(wraplength=wrap)
+        for btn in self.choice_buttons:
+            btn.configure(wraplength=max(200, wrap - 40))
+
+    def _set_split_layout(self, split: bool) -> None:
+        """문제(왼쪽) / 풀이(오른쪽) 분할. 풀이 전에는 단일 열."""
+        if self.body_row is None or self.left_pane is None or self.right_pane is None:
+            return
+        self._split_layout = split
+        self.left_pane.pack_forget()
+        self.right_pane.pack_forget()
+        if split:
+            self._apply_wraplengths(max(360, int(self.root.winfo_screenwidth() * 0.40)))
+            self.left_pane.pack(side="left", fill="both", expand=True, padx=(0, 10))
+            self.right_pane.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        else:
+            self._apply_wraplengths(720)
+            self.left_pane.pack(side="left", fill="both", expand=True)
+            self.right_pane.pack_forget()
 
     def _set_choice_buttons(self, item: dict, *, enabled: bool = True) -> None:
         choices = item.get("choices") or ["①", "②", "③", "④"]
@@ -518,18 +580,16 @@ class QuizAlertApp:
                     text=item.get("caption") or "8비트 그림: 이 문제가 말하는 상황"
                 )
 
+        # 이미지 기출은 처음부터 좌(문제)·우(풀이) 분할로 공간을 크게 씀
+        self._set_split_layout(image_mode)
+
         if self.question_image_label is not None:
             if image_mode:
-                sw = max(640, self.root.winfo_screenwidth())
-                sh = max(480, self.root.winfo_screenheight())
-                self._photo_q = self._load_photo(
-                    item.get("q_image"),
-                    max_w=min(920, int(sw * 0.72)),
-                    max_h=max(180, int(sh * 0.38)),
-                )
+                max_w, max_h = self._image_max_size(pane="left")
+                self._photo_q = self._load_photo(item.get("q_image"), max_w=max_w, max_h=max_h)
                 if self._photo_q is not None:
                     self.question_image_label.configure(image=self._photo_q, text="")
-                    self.question_image_label.pack(anchor="w", pady=(10, 8))
+                    self.question_image_label.pack(anchor="nw", pady=(10, 8))
                     self.question_label.configure(
                         text="보기는 문제 이미지에 있습니다. ①~④ 중 고르세요."
                     )
@@ -549,12 +609,20 @@ class QuizAlertApp:
 
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
+        if image_mode:
+            self.explain_text.insert(
+                "1.0",
+                "정답을 고르면 오른쪽에 해설 이미지가 크게 표시됩니다.",
+            )
         self.explain_text.configure(state="disabled")
         if self.explain_image_label is not None:
             self.explain_image_label.pack_forget()
             self.explain_image_label.configure(image="", text="")
         self.notes_text.delete("1.0", "end")
-        self.explain_frame.pack_forget()
+        if image_mode and self.explain_frame is not None:
+            self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
+        else:
+            self.explain_frame.pack_forget()
         self.notes_frame.pack_forget()
         self.close_btn.place_forget()
 
@@ -586,8 +654,8 @@ class QuizAlertApp:
         card = tk.Frame(
             outer,
             bg=CARD,
-            padx=40,
-            pady=28,
+            padx=28,
+            pady=22,
             highlightthickness=1,
             highlightbackground=CARD_LINE,
         )
@@ -610,13 +678,22 @@ class QuizAlertApp:
         )
         self.source_label.pack(anchor="w", pady=(6, 0))
 
-        self.art_wrap = tk.Frame(card, bg="#0a0618", highlightthickness=2, highlightbackground="#f8d030")
+        self.body_row = tk.Frame(card, bg=CARD)
+        self.body_row.pack(fill="both", expand=True, pady=(8, 0))
+
+        self.left_pane = tk.Frame(self.body_row, bg=CARD)
+        self.right_pane = tk.Frame(self.body_row, bg=CARD)
+        self.left_pane.pack(side="left", fill="both", expand=True)
+
+        self.art_wrap = tk.Frame(
+            self.left_pane, bg="#0a0618", highlightthickness=2, highlightbackground="#f8d030"
+        )
         self.art_wrap.pack(fill="x", pady=(10, 6))
         art_canvas = tk.Canvas(self.art_wrap, highlightthickness=0, bd=0)
         art_canvas.pack()
         self.pixel_surf = PixelSurf(art_canvas, scale=4, w=160, h=58)
         self.caption_label = tk.Label(
-            card,
+            self.left_pane,
             text="",
             fg="#f8d030",
             bg=CARD,
@@ -626,19 +703,19 @@ class QuizAlertApp:
         )
         self.caption_label.pack(anchor="w", pady=(2, 8))
 
-        self.question_image_label = tk.Label(card, bg=CARD, bd=0)
+        self.question_image_label = tk.Label(self.left_pane, bg=CARD, bd=0)
         self.question_label = tk.Label(
-            card,
+            self.left_pane,
             text="",
             fg=TEXT,
             bg=CARD,
             wraplength=self._card_wraplength,
             justify="left",
-            font=("Malgun Gothic", 16, "bold"),
+            font=("Malgun Gothic", 15, "bold"),
         )
-        self.question_label.pack(anchor="w", pady=(12, 18))
+        self.question_label.pack(anchor="w", pady=(8, 12))
 
-        btns = tk.Frame(card, bg=CARD)
+        btns = tk.Frame(self.left_pane, bg=CARD)
         btns.pack(fill="x")
         self.choice_buttons = []
         for i in range(4):
@@ -672,7 +749,7 @@ class QuizAlertApp:
             self.choice_buttons.append(btn)
 
         self.feedback = tk.Label(
-            card,
+            self.left_pane,
             text="",
             fg=MUTED,
             bg=CARD,
@@ -682,10 +759,12 @@ class QuizAlertApp:
         )
         self.feedback.pack(anchor="w", pady=(14, 0))
 
-        self.explain_frame = tk.Frame(card, bg="#121826", highlightthickness=1, highlightbackground="#2f3b55")
+        self.explain_frame = tk.Frame(
+            self.right_pane, bg="#121826", highlightthickness=1, highlightbackground="#2f3b55"
+        )
         head = tk.Label(
             self.explain_frame,
-            text="해설",
+            text="해설 · 풀이",
             fg=OK,
             bg="#121826",
             font=("Malgun Gothic", 10, "bold"),
@@ -694,8 +773,8 @@ class QuizAlertApp:
         self.explain_image_label = tk.Label(self.explain_frame, bg="#121826", bd=0)
         self.explain_text = tk.Text(
             self.explain_frame,
-            height=5,
-            width=78,
+            height=8,
+            width=48,
             wrap="word",
             bg="#121826",
             fg=TEXT,
@@ -708,7 +787,9 @@ class QuizAlertApp:
         self.explain_text.pack(fill="both", expand=True)
         self.explain_text.configure(state="disabled")
 
-        self.notes_frame = tk.Frame(card, bg="#10161f", highlightthickness=1, highlightbackground="#3a465e")
+        self.notes_frame = tk.Frame(
+            self.right_pane, bg="#10161f", highlightthickness=1, highlightbackground="#3a465e"
+        )
         notes_head = tk.Label(
             self.notes_frame,
             text="직접 타이핑 · 필기",
@@ -720,7 +801,7 @@ class QuizAlertApp:
         self.notes_text = tk.Text(
             self.notes_frame,
             height=4,
-            width=78,
+            width=48,
             wrap="word",
             bg="#10161f",
             fg=TEXT,
@@ -884,8 +965,8 @@ class QuizAlertApp:
                         fg=WRONG,
                     )
             self._place_close_btn()
-            if self.notes_frame is not None and self.action_slot is not None:
-                self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
+            if self.notes_frame is not None:
+                self.notes_frame.pack(fill="x", pady=(10, 0))
             if self.notes_text is not None:
                 self.notes_text.focus_set()
             if winsound:
@@ -937,21 +1018,30 @@ class QuizAlertApp:
         assert self.close_btn is not None
         item = self.current_item or {}
         text = item.get("explain") or ""
+        image_mode = self._is_image_item(item)
+
+        # 텍스트 문제도 해설 시 좌(문제)·우(풀이)로 공간을 넓힌다
+        self._set_split_layout(True)
 
         if self.explain_image_label is not None:
             self.explain_image_label.pack_forget()
             self._photo_a = None
-            if self._is_image_item(item):
-                sw = max(640, self.root.winfo_screenwidth())
-                sh = max(480, self.root.winfo_screenheight())
+            if image_mode:
+                max_w, max_h = self._image_max_size(pane="right")
                 self._photo_a = self._load_photo(
                     item.get("a_image"),
-                    max_w=min(920, int(sw * 0.72)),
-                    max_h=max(140, int(sh * 0.28)),
+                    max_w=max_w,
+                    max_h=max_h,
                 )
                 if self._photo_a is not None:
                     self.explain_image_label.configure(image=self._photo_a, text="")
-                    self.explain_image_label.pack(fill="x", padx=8, pady=(6, 4))
+                    self.explain_image_label.pack(
+                        anchor="nw",
+                        fill="x",
+                        padx=8,
+                        pady=(6, 4),
+                        before=self.explain_text,
+                    )
                     if not text:
                         text = "위 해설 이미지를 확인하세요."
 
@@ -962,9 +1052,9 @@ class QuizAlertApp:
         self.explain_text.insert("1.0", text)
         self.explain_text.configure(state="disabled")
         self.notes_text.delete("1.0", "end")
-        self.explain_frame.pack(fill="x", pady=(12, 0), before=self.action_slot)
-        if not (self._is_image_item(item) and self.image_phase == 1 and not self.locked):
-            self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
+        self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
+        if not (image_mode and self.image_phase == 1 and not self.locked):
+            self.notes_frame.pack(fill="x", pady=(10, 0))
             self._place_close_btn()
             self.notes_text.focus_set()
 
