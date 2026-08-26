@@ -603,9 +603,14 @@ def main() -> None:
     from term_bank import TERM_QUESTIONS
     from enrich_explain import enrich_item
 
-    all_extra = EXTRA + TERM_QUESTIONS
     path = HERE / "questions.json"
     data = json.loads(path.read_text(encoding="utf-8"))
+    # 이미지 기출 뱅크는 덮어쓰지 않는다.
+    if any(q.get("image_mode") or q.get("q_image") for q in data.get("questions") or []):
+        print("image question bank detected — skip extra_bank merge")
+        return
+
+    all_extra = EXTRA + TERM_QUESTIONS
     existing = [q for q in data["questions"] if _electrical_only(q)]
     seen = {item["q"].strip() for item in existing}
     added = 0

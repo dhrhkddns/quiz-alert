@@ -5,7 +5,10 @@ a = Analysis(
     ["quiz_alert.py"],
     pathex=[],
     binaries=[],
-    datas=[("questions.json", ".")],
+    datas=[
+        ("questions.json", "."),
+        ("exam_images", "exam_images"),
+    ],
     hiddenimports=["app_paths", "mini_tips", "pixel_art"],
     hookspath=[],
     hooksconfig={},

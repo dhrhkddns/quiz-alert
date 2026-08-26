@@ -46,16 +46,21 @@ if exist ".git" (
 )
 
 echo [2/3] 문제 은행 갱신 중...
-where python >nul 2>&1
+findstr /C:"image_mode" "%~dp0questions.json" >nul 2>&1
 if not errorlevel 1 (
-    python extra_bank.py 2>nul
+    echo 이미지 기출 문제은행이 감지되어 extra_bank 병합을 건너뜁니다.
 ) else (
-    where python3 >nul 2>&1
+    where python >nul 2>&1
     if not errorlevel 1 (
-        python3 extra_bank.py 2>nul
+        python extra_bank.py 2>nul
     ) else (
-        echo 파이썬이 없어 문제 은행 스크립트는 건너뜁니다.
-        echo exe 옆의 questions.json 또는 exe에 들어 있는 문제를 사용합니다.
+        where python3 >nul 2>&1
+        if not errorlevel 1 (
+            python3 extra_bank.py 2>nul
+        ) else (
+            echo 파이썬이 없어 문제 은행 스크립트는 건너뜁니다.
+            echo exe 옆의 questions.json 또는 exe에 들어 있는 문제를 사용합니다.
+        )
     )
 )
 echo.
@@ -78,6 +83,17 @@ where py >nul 2>&1
 if not errorlevel 1 (
     start "" py -3 "%~dp0quiz_alert.py"
     goto :launched
+)
+
+findstr /C:"image_mode" "%~dp0questions.json" >nul 2>&1
+if not errorlevel 1 (
+    echo.
+    echo [오류] 이미지 기출 문제은행은 최신 quiz_alert.py 가 필요합니다.
+    echo Python 3 를 설치한 뒤 이 폴더에서 다시 실행하세요.
+    echo   https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
 )
 
 call :ensure_exe

@@ -32,5 +32,21 @@ def resolve_questions_path() -> Path:
     return bundled_dir() / "questions.json"
 
 
+def resolve_media_path(relative: str | None) -> Path | None:
+    """questions.json 의 q_image/a_image 상대경로를 실제 파일로 해석한다."""
+    if not relative:
+        return None
+    rel = Path(relative)
+    candidates = [
+        app_dir() / rel,
+        bundled_dir() / rel,
+        resolve_questions_path().parent / rel,
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
 def progress_path() -> Path:
     return app_dir() / ".quiz_progress.json"

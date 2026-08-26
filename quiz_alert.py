@@ -22,7 +22,7 @@ except ImportError:
 import tkinter as tk
 from tkinter import font as tkfont
 
-from app_paths import progress_path, resolve_questions_path
+from app_paths import progress_path, resolve_media_path, resolve_questions_path
 from mini_tips import MINI_TIPS
 from pixel_art import PixelSurf, render_visual
 
@@ -242,8 +242,11 @@ class QuizAlertApp:
         self.overlay: tk.Toplevel | None = None
         self.source_label: tk.Label | None = None
         self.pixel_surf: PixelSurf | None = None
+        self.art_wrap: tk.Frame | None = None
         self.caption_label: tk.Label | None = None
         self.question_label: tk.Label | None = None
+        self.question_image_label: tk.Label | None = None
+        self.explain_image_label: tk.Label | None = None
         self.feedback: tk.Label | None = None
         self.choice_buttons: list[tk.Button] = []
         self.explain_frame: tk.Frame | None = None
@@ -254,6 +257,11 @@ class QuizAlertApp:
         self.current_item: dict | None = None
         self.current_answer = 0
         self.locked = False
+        self.image_phase = 0  # 0=풀이, 1=해설 확인 후 정답 번호 재입력
+        self.pending_choice: int | None = None
+        self._photo_q: object | None = None
+        self._photo_a: object | None = None
+        self._card_wraplength = 720
 
         self._setup_root()
         self._setup_wait_bar()
@@ -418,11 +426,56 @@ class QuizAlertApp:
         save_question_pool(self.remaining, self.questions)
         return item
 
+    def _is_image_item(self, item: dict | None = None) -> bool:
+        item = item or self.current_item
+        if not item:
+            return False
+        return bool(item.get("image_mode") or item.get("q_image"))
+
+    def _load_photo(self, relative: str | None, max_w: int, max_h: int):
+        """PNG 이미지를 Tk PhotoImage 로 로드·축소한다 (Pillow 불필요)."""
+        if not relative:
+            return None
+        path = resolve_media_path(relative)
+        if path is None:
+            return None
+        try:
+            img = tk.PhotoImage(file=str(path))
+            w, h = img.width(), img.height()
+            if w <= 0 or h <= 0:
+                return None
+            if w > max_w or h > max_h:
+                factor = max(1, math.ceil(max(w / max_w, h / max_h)))
+                img = img.subsample(factor, factor)
+            return img
+        except tk.TclError:
+            return None
+        except Exception:
+            return None
+
+    def _set_choice_buttons(self, item: dict, *, enabled: bool = True) -> None:
+        choices = item.get("choices") or ["①", "②", "③", "④"]
+        for i, btn in enumerate(self.choice_buttons):
+            if i < len(choices):
+                btn.configure(
+                    text=f"{i + 1}.  {choices[i]}",
+                    state=("normal" if enabled else "disabled"),
+                    bg=BTN,
+                    fg=TEXT,
+                )
+                btn.pack(fill="x", pady=5)
+            else:
+                btn.pack_forget()
+
     def show_quiz(self) -> None:
         if self.quiz_open:
             return
         self.quiz_open = True
         self.locked = False
+        self.image_phase = 0
+        self.pending_choice = None
+        self._photo_q = None
+        self._photo_a = None
         self._cancel_show_job()
         if self.tick_job:
             self.root.after_cancel(self.tick_job)
@@ -432,7 +485,7 @@ class QuizAlertApp:
 
         item = self.next_question()
         self.current_item = item
-        self.current_answer = int(item["answer"])
+        self.current_answer = int(item.get("answer", -1))
 
         if self.overlay is None:
             self._build_overlay()
@@ -447,30 +500,59 @@ class QuizAlertApp:
         assert self.close_btn is not None
 
         self.source_label.configure(text=item.get("source", "9급 전기직 기출"))
-        if self.pixel_surf is not None:
-            render_visual(self.pixel_surf, item.get("visual"), item)
-        if self.caption_label is not None:
-            self.caption_label.configure(
-                text=item.get("caption") or "8비트 그림: 이 문제가 말하는 상황"
-            )
-        self.question_label.configure(text=item["q"])
-        self.feedback.configure(text="정답을 고르세요. 맞혀야 창이 닫힙니다.", fg=MUTED)
-        choices = item["choices"]
-        for i, btn in enumerate(self.choice_buttons):
-            if i < len(choices):
-                btn.configure(
-                    text=f"{i + 1}.  {choices[i]}",
-                    state="normal",
-                    bg=BTN,
-                    fg=TEXT,
-                )
-                btn.pack(fill="x", pady=5)
+        image_mode = self._is_image_item(item)
+
+        if self.art_wrap is not None:
+            if image_mode:
+                self.art_wrap.pack_forget()
             else:
-                btn.pack_forget()
+                self.art_wrap.pack(fill="x", pady=(10, 6))
+        if self.caption_label is not None:
+            if image_mode:
+                self.caption_label.pack_forget()
+            else:
+                self.caption_label.pack(anchor="w", pady=(2, 8))
+                if self.pixel_surf is not None:
+                    render_visual(self.pixel_surf, item.get("visual"), item)
+                self.caption_label.configure(
+                    text=item.get("caption") or "8비트 그림: 이 문제가 말하는 상황"
+                )
+
+        if self.question_image_label is not None:
+            if image_mode:
+                sw = max(640, self.root.winfo_screenwidth())
+                sh = max(480, self.root.winfo_screenheight())
+                self._photo_q = self._load_photo(
+                    item.get("q_image"),
+                    max_w=min(920, int(sw * 0.72)),
+                    max_h=max(180, int(sh * 0.38)),
+                )
+                if self._photo_q is not None:
+                    self.question_image_label.configure(image=self._photo_q, text="")
+                    self.question_image_label.pack(anchor="w", pady=(10, 8))
+                    self.question_label.configure(
+                        text="보기는 문제 이미지에 있습니다. ①~④ 중 고르세요."
+                    )
+                else:
+                    self.question_image_label.pack_forget()
+                    self.question_label.configure(
+                        text="문제 이미지를 불러오지 못했습니다. exam_images 폴더를 확인하세요."
+                    )
+            else:
+                self.question_image_label.pack_forget()
+                self.question_label.configure(text=item["q"])
+        else:
+            self.question_label.configure(text=item.get("q", ""))
+
+        self.feedback.configure(text="정답을 고르세요. 맞혀야 창이 닫힙니다.", fg=MUTED)
+        self._set_choice_buttons(item, enabled=True)
 
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
         self.explain_text.configure(state="disabled")
+        if self.explain_image_label is not None:
+            self.explain_image_label.pack_forget()
+            self.explain_image_label.configure(image="", text="")
         self.notes_text.delete("1.0", "end")
         self.explain_frame.pack_forget()
         self.notes_frame.pack_forget()
@@ -528,9 +610,9 @@ class QuizAlertApp:
         )
         self.source_label.pack(anchor="w", pady=(6, 0))
 
-        art_wrap = tk.Frame(card, bg="#0a0618", highlightthickness=2, highlightbackground="#f8d030")
-        art_wrap.pack(fill="x", pady=(10, 6))
-        art_canvas = tk.Canvas(art_wrap, highlightthickness=0, bd=0)
+        self.art_wrap = tk.Frame(card, bg="#0a0618", highlightthickness=2, highlightbackground="#f8d030")
+        self.art_wrap.pack(fill="x", pady=(10, 6))
+        art_canvas = tk.Canvas(self.art_wrap, highlightthickness=0, bd=0)
         art_canvas.pack()
         self.pixel_surf = PixelSurf(art_canvas, scale=4, w=160, h=58)
         self.caption_label = tk.Label(
@@ -538,18 +620,19 @@ class QuizAlertApp:
             text="",
             fg="#f8d030",
             bg=CARD,
-            wraplength=720,
+            wraplength=self._card_wraplength,
             justify="left",
             font=("Malgun Gothic", 10),
         )
         self.caption_label.pack(anchor="w", pady=(2, 8))
 
+        self.question_image_label = tk.Label(card, bg=CARD, bd=0)
         self.question_label = tk.Label(
             card,
             text="",
             fg=TEXT,
             bg=CARD,
-            wraplength=720,
+            wraplength=self._card_wraplength,
             justify="left",
             font=("Malgun Gothic", 16, "bold"),
         )
@@ -593,7 +676,7 @@ class QuizAlertApp:
             text="",
             fg=MUTED,
             bg=CARD,
-            wraplength=720,
+            wraplength=self._card_wraplength,
             justify="left",
             font=("Malgun Gothic", 11),
         )
@@ -608,6 +691,7 @@ class QuizAlertApp:
             font=("Malgun Gothic", 10, "bold"),
         )
         head.pack(anchor="w", padx=12, pady=(10, 0))
+        self.explain_image_label = tk.Label(self.explain_frame, bg="#121826", bd=0)
         self.explain_text = tk.Text(
             self.explain_frame,
             height=5,
@@ -740,13 +824,83 @@ class QuizAlertApp:
     def try_answer(self, idx: int) -> None:
         if not self.quiz_open or self.locked or self.current_item is None:
             return
-        if idx >= len(self.current_item["choices"]):
+        choices = self.current_item.get("choices") or []
+        if idx >= len(choices):
             return
+
+        # 이미지 기출: 1차 선택 → 해설 이미지 → 2차로 해설의 정답 번호 확인
+        if self._is_image_item() and self.image_phase == 0:
+            self.pending_choice = idx
+            self.image_phase = 1
+            for i, btn in enumerate(self.choice_buttons):
+                if i >= len(choices):
+                    continue
+                btn.configure(state="normal", bg=(ACCENT if i == idx else BTN), fg=TEXT)
+            if self.feedback:
+                self.feedback.configure(
+                    text="해설을 확인한 뒤, 해설에 나온 정답 번호를 다시 누르세요.",
+                    fg=ACCENT,
+                )
+            self._show_explain()
+            # 닫기는 아직 불가 — 2차 확인 필요
+            if self.close_btn is not None:
+                self.close_btn.place_forget()
+            if self.notes_frame is not None:
+                self.notes_frame.pack_forget()
+            return
+
+        if self._is_image_item() and self.image_phase == 1:
+            first = self.pending_choice
+            if first is None:
+                return
+            self.locked = True
+            matched = first == idx
+            if matched:
+                self.solved_count += 1
+            else:
+                self.miss_count += 1
+
+            for i, btn in enumerate(self.choice_buttons):
+                if i >= len(choices):
+                    continue
+                btn.configure(state="disabled")
+                if i == idx:
+                    btn.configure(bg=OK, fg="#0b0d12")
+                elif i == first and first != idx:
+                    btn.configure(bg=WRONG, fg=TEXT)
+
+            if self.feedback:
+                if matched:
+                    self.feedback.configure(
+                        text=f"정답입니다. 해설을 읽고 닫으면 {self.interval_label} 뒤에 다시 나옵니다.",
+                        fg=OK,
+                    )
+                else:
+                    self.feedback.configure(
+                        text=(
+                            f"1차 선택({first + 1})과 해설 정답({idx + 1})이 다릅니다. "
+                            f"닫으면 {self.interval_label} 뒤에 다시 나옵니다."
+                        ),
+                        fg=WRONG,
+                    )
+            self._place_close_btn()
+            if self.notes_frame is not None and self.action_slot is not None:
+                self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
+            if self.notes_text is not None:
+                self.notes_text.focus_set()
+            if winsound:
+                try:
+                    winsound.MessageBeep(winsound.MB_OK if matched else winsound.MB_ICONHAND)
+                except Exception:
+                    pass
+            return
+
+        # 텍스트 문제(기존)
         if idx == self.current_answer:
             self.locked = True
             self.solved_count += 1
             for i, btn in enumerate(self.choice_buttons):
-                if i >= len(self.current_item["choices"]):
+                if i >= len(choices):
                     continue
                 btn.configure(state="disabled")
                 if i == idx:
@@ -781,16 +935,38 @@ class QuizAlertApp:
         assert self.notes_frame is not None
         assert self.notes_text is not None
         assert self.close_btn is not None
-        text = (self.current_item or {}).get("explain") or "해설이 없습니다."
+        item = self.current_item or {}
+        text = item.get("explain") or ""
+
+        if self.explain_image_label is not None:
+            self.explain_image_label.pack_forget()
+            self._photo_a = None
+            if self._is_image_item(item):
+                sw = max(640, self.root.winfo_screenwidth())
+                sh = max(480, self.root.winfo_screenheight())
+                self._photo_a = self._load_photo(
+                    item.get("a_image"),
+                    max_w=min(920, int(sw * 0.72)),
+                    max_h=max(140, int(sh * 0.28)),
+                )
+                if self._photo_a is not None:
+                    self.explain_image_label.configure(image=self._photo_a, text="")
+                    self.explain_image_label.pack(fill="x", padx=8, pady=(6, 4))
+                    if not text:
+                        text = "위 해설 이미지를 확인하세요."
+
+        if not text:
+            text = "해설이 없습니다."
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
         self.explain_text.insert("1.0", text)
         self.explain_text.configure(state="disabled")
         self.notes_text.delete("1.0", "end")
         self.explain_frame.pack(fill="x", pady=(12, 0), before=self.action_slot)
-        self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
-        self._place_close_btn()
-        self.notes_text.focus_set()
+        if not (self._is_image_item(item) and self.image_phase == 1 and not self.locked):
+            self.notes_frame.pack(fill="x", pady=(10, 0), before=self.action_slot)
+            self._place_close_btn()
+            self.notes_text.focus_set()
 
     def _place_close_btn(self) -> None:
         """카드 높이와 상관없이 화면 오른쪽에 닫기 버튼을 고정한다."""
@@ -806,6 +982,8 @@ class QuizAlertApp:
             self.root.after_cancel(self.keep_job)
             self.keep_job = None
         self.quiz_open = False
+        self._photo_q = None
+        self._photo_a = None
         if self.overlay is not None:
             self.overlay.withdraw()
         self.next_at = time.monotonic() + (self.interval_ms / 1000)
