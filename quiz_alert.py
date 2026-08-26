@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""9급 전기직 기출 알림 퀴즈. 정답을 맞히고 해설을 확인해야 창이 닫힌다."""
+"""9급 전기직 기출 알림 퀴즈. 문제를 보고 풀이를 확인해야 창이 닫힌다."""
 
 from __future__ import annotations
 
@@ -235,8 +235,7 @@ class QuizAlertApp:
         self.interval_label = self._format_interval()
         self.remaining: list[dict] = load_question_pool(self.questions)
         self.quiz_open = False
-        self.solved_count = 0
-        self.miss_count = 0
+        self.viewed_count = 0
         self.next_at = 0.0
         self.keep_job: str | None = None
         self.tick_job: str | None = None
@@ -257,17 +256,14 @@ class QuizAlertApp:
         self.question_image_label: tk.Label | None = None
         self.explain_image_label: tk.Label | None = None
         self.feedback: tk.Label | None = None
-        self.choice_buttons: list[tk.Button] = []
+        self.reveal_btn: tk.Button | None = None
         self.explain_frame: tk.Frame | None = None
         self.explain_text: tk.Text | None = None
         self.notes_frame: tk.Frame | None = None
         self.notes_text: tk.Text | None = None
         self.close_btn: tk.Button | None = None
         self.current_item: dict | None = None
-        self.current_answer = 0
-        self.locked = False
-        self.image_phase = 0  # 0=풀이, 1=해설 확인 후 정답 번호 재입력
-        self.pending_choice: int | None = None
+        self.locked = False  # 풀이 확인 후 True → 닫기 가능
         self._photo_q: object | None = None
         self._photo_a: object | None = None
         self._split_layout = False
@@ -355,7 +351,7 @@ class QuizAlertApp:
 
         self.wait_label = tk.Label(
             wrap,
-            text="정답 0  ·  오답 0",
+            text="확인 0",
             fg=MUTED,
             bg=CARD,
             font=("Malgun Gothic", 9),
@@ -496,8 +492,6 @@ class QuizAlertApp:
             self.question_label.configure(wraplength=wrap)
         if self.feedback is not None:
             self.feedback.configure(wraplength=wrap)
-        for btn in self.choice_buttons:
-            btn.configure(wraplength=max(200, wrap - 40))
 
     def _set_split_layout(self, split: bool) -> None:
         """문제(왼쪽) / 풀이(오른쪽) 분할. 풀이 전에는 단일 열."""
@@ -515,27 +509,11 @@ class QuizAlertApp:
             self.left_pane.pack(side="left", fill="both", expand=True)
             self.right_pane.pack_forget()
 
-    def _set_choice_buttons(self, item: dict, *, enabled: bool = True) -> None:
-        choices = item.get("choices") or ["①", "②", "③", "④"]
-        for i, btn in enumerate(self.choice_buttons):
-            if i < len(choices):
-                btn.configure(
-                    text=f"{i + 1}.  {choices[i]}",
-                    state=("normal" if enabled else "disabled"),
-                    bg=BTN,
-                    fg=TEXT,
-                )
-                btn.pack(fill="x", pady=5)
-            else:
-                btn.pack_forget()
-
     def show_quiz(self) -> None:
         if self.quiz_open:
             return
         self.quiz_open = True
         self.locked = False
-        self.image_phase = 0
-        self.pending_choice = None
         self._photo_q = None
         self._photo_a = None
         self._cancel_show_job()
@@ -547,7 +525,6 @@ class QuizAlertApp:
 
         item = self.next_question()
         self.current_item = item
-        self.current_answer = int(item.get("answer", -1))
 
         if self.overlay is None:
             self._build_overlay()
@@ -555,6 +532,7 @@ class QuizAlertApp:
         assert self.source_label is not None
         assert self.question_label is not None
         assert self.feedback is not None
+        assert self.reveal_btn is not None
         assert self.explain_frame is not None
         assert self.explain_text is not None
         assert self.notes_frame is not None
@@ -580,8 +558,8 @@ class QuizAlertApp:
                     text=item.get("caption") or "8비트 그림: 이 문제가 말하는 상황"
                 )
 
-        # 이미지 기출은 처음부터 좌(문제)·우(풀이) 분할로 공간을 크게 씀
-        self._set_split_layout(image_mode)
+        # 문제(왼) / 필기·풀이(오른) — 처음부터 분할해 필기 공간을 확보
+        self._set_split_layout(True)
 
         if self.question_image_label is not None:
             if image_mode:
@@ -590,9 +568,7 @@ class QuizAlertApp:
                 if self._photo_q is not None:
                     self.question_image_label.configure(image=self._photo_q, text="")
                     self.question_image_label.pack(anchor="nw", pady=(10, 8))
-                    self.question_label.configure(
-                        text="보기는 문제 이미지에 있습니다. ①~④ 중 고르세요."
-                    )
+                    self.question_label.configure(text="문제를 풀고, 준비가 되면 풀이 보기를 누르세요.")
                 else:
                     self.question_image_label.pack_forget()
                     self.question_label.configure(
@@ -604,35 +580,32 @@ class QuizAlertApp:
         else:
             self.question_label.configure(text=item.get("q", ""))
 
-        self.feedback.configure(text="정답을 고르세요. 맞혀야 창이 닫힙니다.", fg=MUTED)
-        self._set_choice_buttons(item, enabled=True)
+        self.feedback.configure(
+            text="필기란에 자유롭게 타이핑하세요. 풀이를 확인해야 창을 닫을 수 있습니다.",
+            fg=MUTED,
+        )
+        self.reveal_btn.configure(state="normal")
+        self.reveal_btn.pack(fill="x", pady=(12, 0))
 
         self.explain_text.configure(state="normal")
         self.explain_text.delete("1.0", "end")
-        if image_mode:
-            self.explain_text.insert(
-                "1.0",
-                "정답을 고르면 오른쪽에 해설 이미지가 크게 표시됩니다.",
-            )
+        self.explain_text.insert("1.0", "『풀이 보기』를 누르면 해설이 여기에 표시됩니다.")
         self.explain_text.configure(state="disabled")
         if self.explain_image_label is not None:
             self.explain_image_label.pack_forget()
             self.explain_image_label.configure(image="", text="")
         self.notes_text.delete("1.0", "end")
-        if image_mode and self.explain_frame is not None:
-            self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
-        else:
-            self.explain_frame.pack_forget()
-        self.notes_frame.pack_forget()
+        self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
+        self.notes_frame.pack(fill="x", pady=(10, 0))
         self.close_btn.place_forget()
 
         self._cover_all_screens()
         self.overlay.deiconify()
         self.overlay.lift()
         self.overlay.attributes("-topmost", True)
-        self.overlay.focus_force()
         self.root.update_idletasks()
         force_foreground(self.overlay.winfo_id())
+        self.notes_text.focus_set()
         beep_alert()
         self._keep_on_top()
 
@@ -715,38 +688,22 @@ class QuizAlertApp:
         )
         self.question_label.pack(anchor="w", pady=(8, 12))
 
-        btns = tk.Frame(self.left_pane, bg=CARD)
-        btns.pack(fill="x")
-        self.choice_buttons = []
-        for i in range(4):
-            btn = tk.Button(
-                btns,
-                text="",
-                command=lambda idx=i: self.try_answer(idx),
-                bg=BTN,
-                fg=TEXT,
-                activebackground=BTN_HOVER,
-                activeforeground=TEXT,
-                relief="flat",
-                bd=0,
-                padx=14,
-                pady=10,
-                anchor="w",
-                justify="left",
-                wraplength=680,
-                cursor="hand2",
-                font=("Malgun Gothic", 12),
-            )
-            btn.pack(fill="x", pady=5)
-            btn.bind(
-                "<Enter>",
-                lambda e, b=btn: b.configure(bg=BTN_HOVER) if str(b["state"]) == "normal" else None,
-            )
-            btn.bind(
-                "<Leave>",
-                lambda e, b=btn: b.configure(bg=BTN) if str(b["state"]) == "normal" else None,
-            )
-            self.choice_buttons.append(btn)
+        self.reveal_btn = tk.Button(
+            self.left_pane,
+            text="풀이 보기",
+            command=self.reveal_solution,
+            bg=ACCENT,
+            fg="white",
+            activebackground="#8aa4ff",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=12,
+            cursor="hand2",
+            font=("Malgun Gothic", 13, "bold"),
+        )
+        self.reveal_btn.pack(fill="x", pady=(12, 0))
 
         self.feedback = tk.Label(
             self.left_pane,
@@ -800,7 +757,7 @@ class QuizAlertApp:
         notes_head.pack(anchor="w", padx=12, pady=(10, 0))
         self.notes_text = tk.Text(
             self.notes_frame,
-            height=4,
+            height=6,
             width=48,
             wrap="word",
             bg="#10161f",
@@ -821,7 +778,7 @@ class QuizAlertApp:
 
         self.close_btn = tk.Button(
             win,
-            text=f"해설 확인 후 닫기\n{self.interval_label} 뒤에 다시 출제",
+            text=f"확인 후 닫기\n{self.interval_label} 뒤에 다시 출제",
             command=self.close_quiz,
             bg=OK,
             fg="#0b0d12",
@@ -838,7 +795,7 @@ class QuizAlertApp:
 
         tk.Label(
             card,
-            text="숫자 키 1~4 로도 고를 수 있습니다.  퀴즈 중에는 창을 닫을 수 없습니다.",
+            text="필기는 언제든 가능합니다.  풀이 보기 후 Enter/Space 로 닫을 수 있습니다.",
             fg="#667085",
             bg=CARD,
             font=("Malgun Gothic", 9),
@@ -856,7 +813,9 @@ class QuizAlertApp:
         try:
             self.overlay.lift()
             self.overlay.attributes("-topmost", True)
-            force_foreground(self.overlay.winfo_id())
+            # 필기 중에는 포커스를 빼앗지 않는다
+            if not self._notes_has_focus():
+                force_foreground(self.overlay.winfo_id())
         except tk.TclError:
             return
         self.keep_job = self.root.after(500, self._keep_on_top)
@@ -894,121 +853,32 @@ class QuizAlertApp:
     def _on_key(self, event: tk.Event) -> str | None:
         if self._notes_has_focus():
             return None
-        if self.locked and event.keysym in ("Return", "space"):
-            self.close_quiz()
-            return "break"
-        if event.char in "1234":
-            self.try_answer(int(event.char) - 1)
+        if event.keysym in ("Return", "space"):
+            if self.locked:
+                self.close_quiz()
+            else:
+                self.reveal_solution()
             return "break"
         return "break"
 
-    def try_answer(self, idx: int) -> None:
+    def reveal_solution(self) -> None:
         if not self.quiz_open or self.locked or self.current_item is None:
             return
-        choices = self.current_item.get("choices") or []
-        if idx >= len(choices):
-            return
-
-        # 이미지 기출: 1차 선택 → 해설 이미지 → 2차로 해설의 정답 번호 확인
-        if self._is_image_item() and self.image_phase == 0:
-            self.pending_choice = idx
-            self.image_phase = 1
-            for i, btn in enumerate(self.choice_buttons):
-                if i >= len(choices):
-                    continue
-                btn.configure(state="normal", bg=(ACCENT if i == idx else BTN), fg=TEXT)
-            if self.feedback:
-                self.feedback.configure(
-                    text="해설을 확인한 뒤, 해설에 나온 정답 번호를 다시 누르세요.",
-                    fg=ACCENT,
-                )
-            self._show_explain()
-            # 닫기는 아직 불가 — 2차 확인 필요
-            if self.close_btn is not None:
-                self.close_btn.place_forget()
-            if self.notes_frame is not None:
-                self.notes_frame.pack_forget()
-            return
-
-        if self._is_image_item() and self.image_phase == 1:
-            first = self.pending_choice
-            if first is None:
-                return
-            self.locked = True
-            matched = first == idx
-            if matched:
-                self.solved_count += 1
-            else:
-                self.miss_count += 1
-
-            for i, btn in enumerate(self.choice_buttons):
-                if i >= len(choices):
-                    continue
-                btn.configure(state="disabled")
-                if i == idx:
-                    btn.configure(bg=OK, fg="#0b0d12")
-                elif i == first and first != idx:
-                    btn.configure(bg=WRONG, fg=TEXT)
-
-            if self.feedback:
-                if matched:
-                    self.feedback.configure(
-                        text=f"정답입니다. 해설을 읽고 닫으면 {self.interval_label} 뒤에 다시 나옵니다.",
-                        fg=OK,
-                    )
-                else:
-                    self.feedback.configure(
-                        text=(
-                            f"1차 선택({first + 1})과 해설 정답({idx + 1})이 다릅니다. "
-                            f"닫으면 {self.interval_label} 뒤에 다시 나옵니다."
-                        ),
-                        fg=WRONG,
-                    )
-            self._place_close_btn()
-            if self.notes_frame is not None:
-                self.notes_frame.pack(fill="x", pady=(10, 0))
-            if self.notes_text is not None:
-                self.notes_text.focus_set()
-            if winsound:
-                try:
-                    winsound.MessageBeep(winsound.MB_OK if matched else winsound.MB_ICONHAND)
-                except Exception:
-                    pass
-            return
-
-        # 텍스트 문제(기존)
-        if idx == self.current_answer:
-            self.locked = True
-            self.solved_count += 1
-            for i, btn in enumerate(self.choice_buttons):
-                if i >= len(choices):
-                    continue
-                btn.configure(state="disabled")
-                if i == idx:
-                    btn.configure(bg=OK, fg="#0b0d12")
-            if self.feedback:
-                self.feedback.configure(
-                    text=f"정답입니다. 해설을 읽고 닫으면 {self.interval_label} 뒤에 다시 나옵니다.",
-                    fg=OK,
-                )
-            self._show_explain()
-            if winsound:
-                try:
-                    winsound.MessageBeep(winsound.MB_OK)
-                except Exception:
-                    pass
-        else:
-            self.miss_count += 1
-            btn = self.choice_buttons[idx]
-            btn.configure(bg=WRONG)
-            if self.feedback:
-                self.feedback.configure(text="오답입니다. 다시 골라 주세요.", fg=WRONG)
-            if winsound:
-                try:
-                    winsound.MessageBeep(winsound.MB_ICONHAND)
-                except Exception:
-                    pass
-            self.root.after(280, lambda: btn.configure(bg=BTN) if str(btn["state"]) == "normal" else None)
+        self.locked = True
+        self.viewed_count += 1
+        if self.reveal_btn is not None:
+            self.reveal_btn.configure(state="disabled")
+        if self.feedback is not None:
+            self.feedback.configure(
+                text=f"풀이를 확인했습니다. 닫으면 {self.interval_label} 뒤에 다시 나옵니다.",
+                fg=OK,
+            )
+        self._show_explain()
+        if winsound:
+            try:
+                winsound.MessageBeep(winsound.MB_OK)
+            except Exception:
+                pass
 
     def _show_explain(self) -> None:
         assert self.explain_frame is not None
@@ -1020,7 +890,6 @@ class QuizAlertApp:
         text = item.get("explain") or ""
         image_mode = self._is_image_item(item)
 
-        # 텍스트 문제도 해설 시 좌(문제)·우(풀이)로 공간을 넓힌다
         self._set_split_layout(True)
 
         if self.explain_image_label is not None:
@@ -1051,12 +920,11 @@ class QuizAlertApp:
         self.explain_text.delete("1.0", "end")
         self.explain_text.insert("1.0", text)
         self.explain_text.configure(state="disabled")
-        self.notes_text.delete("1.0", "end")
+        # 필기 내용은 지우지 않는다 — 처음부터 타이핑 가능
         self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
-        if not (image_mode and self.image_phase == 1 and not self.locked):
-            self.notes_frame.pack(fill="x", pady=(10, 0))
-            self._place_close_btn()
-            self.notes_text.focus_set()
+        self.notes_frame.pack(fill="x", pady=(10, 0))
+        self._place_close_btn()
+        self.notes_text.focus_set()
 
     def _place_close_btn(self) -> None:
         """카드 높이와 상관없이 화면 오른쪽에 닫기 버튼을 고정한다."""
@@ -1134,7 +1002,7 @@ class QuizAlertApp:
         left = max(0, int(self.next_at - time.monotonic()))
         m, s = divmod(left, 60)
         self.wait_time_label.configure(text=f"{m:02d}:{s:02d}")
-        self.wait_label.configure(text=f"정답 {self.solved_count}  ·  오답 {self.miss_count}")
+        self.wait_label.configure(text=f"확인 {self.viewed_count}")
         self.tick_job = self.root.after(250, self._tick_wait)
 
     def quit_app(self) -> None:
