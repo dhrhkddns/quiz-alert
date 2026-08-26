@@ -193,6 +193,8 @@ def load_question_pool(questions: list[dict]) -> list[dict]:
                 saved = data.get("remaining") or []
                 pool = [key_to_item[k] for k in saved if k in key_to_item]
                 if pool:
+                    random.shuffle(pool)
+                    save_question_pool(pool, questions)
                     return pool
         except Exception:
             pass
@@ -378,6 +380,23 @@ class QuizAlertApp:
         )
         now_btn.pack(side="left", padx=(0, 6))
 
+        random_btn = tk.Button(
+            btn_row,
+            text="Random",
+            command=self.shuffle_questions,
+            bg="#2a2448",
+            fg=TEXT,
+            activebackground="#6c5ce7",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=2,
+            cursor="hand2",
+            font=("Malgun Gothic", 9, "bold"),
+        )
+        random_btn.pack(side="left", padx=(0, 6))
+
         quit_btn = tk.Button(
             btn_row,
             text="종료",
@@ -428,9 +447,20 @@ class QuizAlertApp:
         if not self.remaining:
             self.remaining = list(self.questions)
             random.shuffle(self.remaining)
-        item = self.remaining.pop()
+        item = self.remaining.pop(random.randrange(len(self.remaining)))
         save_question_pool(self.remaining, self.questions)
         return item
+
+    def shuffle_questions(self) -> None:
+        """남은 문제 순서를 다시 섞는다. 대기 막대의 Random 버튼에서 호출한다."""
+        if self.quiz_open:
+            return
+        if not self.remaining:
+            self.remaining = list(self.questions)
+        random.shuffle(self.remaining)
+        save_question_pool(self.remaining, self.questions)
+        left = len(self.remaining)
+        self.wait_label.configure(text=f"섞음 · 남은 {left}")
 
     def _is_image_item(self, item: dict | None = None) -> bool:
         item = item or self.current_item

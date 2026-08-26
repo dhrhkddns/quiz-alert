@@ -57,9 +57,18 @@ object QuestionBank {
 
     fun next(): Question {
         if (remaining.isEmpty()) refill()
-        val q = remaining.removeAt(remaining.lastIndex)
+        val q = remaining.removeAt((0 until remaining.size).random())
         persistRemaining()
         return q
+    }
+
+    fun shuffleRemaining() {
+        if (remaining.isEmpty()) {
+            refill()
+            return
+        }
+        remaining.shuffle()
+        persistRemaining()
     }
 
     private fun questionKey(q: Question) = q.q.trim()
@@ -78,7 +87,7 @@ object QuestionBank {
         remaining.clear()
         if (sig == bankSignature() && !saved.isNullOrEmpty()) {
             val map = all.associateBy { questionKey(it) }
-            remaining.addAll(saved.mapNotNull { map[it] })
+            remaining.addAll(saved.mapNotNull { map[it] }.shuffled())
             if (remaining.isNotEmpty()) return
         }
         refill()

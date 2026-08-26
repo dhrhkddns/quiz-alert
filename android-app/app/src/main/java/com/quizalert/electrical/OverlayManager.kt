@@ -22,6 +22,7 @@ class OverlayManager(private val context: Context) {
     var onQuizClosed: (() -> Unit)? = null
     var onQuit: (() -> Unit)? = null
     var onSolved: ((Boolean) -> Unit)? = null
+    var onShuffle: (() -> Unit)? = null
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val inflater = LayoutInflater.from(context)
@@ -178,6 +179,7 @@ class OverlayManager(private val context: Context) {
         val view = inflater.inflate(R.layout.overlay_wait, null)
         waitView = view
         view.findViewById<Button>(R.id.waitQuit).setOnClickListener { onQuit?.invoke() }
+        view.findViewById<Button>(R.id.waitRandom).setOnClickListener { onShuffle?.invoke() }
         val type = if (Build.VERSION.SDK_INT >= 26) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {

@@ -1,4 +1,5 @@
 # 전기이론·전기기기 깨알 공식/상식 — 대기창 20초마다 순환
+from __future__ import annotations
 
 MINI_TIPS: list[str] = [
     "V = IR  ·  옴의 법칙",

@@ -19,10 +19,23 @@
         android:textSize="12sp" />
 
     <Button
-        android:id="@+id/waitQuit"
+        android:id="@+id/waitRandom"
         android:layout_width="wrap_content"
         android:layout_height="36dp"
         android:layout_marginStart="10dp"
+        android:backgroundTint="#2A2448"
+        android:minWidth="0dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:text="Random"
+        android:textColor="@color/text"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/waitQuit"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_marginStart="6dp"
         android:backgroundTint="#3A2430"
         android:minWidth="0dp"
         android:paddingStart="10dp"

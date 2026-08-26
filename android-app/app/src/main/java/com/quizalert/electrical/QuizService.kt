@@ -37,6 +37,7 @@ class QuizService : Service() {
             scheduleNext()
         }
         overlay.onQuit = { stopSelf() }
+        overlay.onShuffle = { QuestionBank.shuffleRemaining() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
