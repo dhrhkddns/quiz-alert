@@ -793,15 +793,19 @@ class QuizAlertApp:
             bg="#10161f",
             fg=TEXT,
             insertbackground=ACCENT,
+            insertwidth=2,
+            insertontime=600,
+            insertofftime=300,
             relief="flat",
             bd=0,
             padx=12,
             pady=8,
             font=("Malgun Gothic", 11),
             undo=True,
+            exportselection=False,
         )
         self.notes_text.pack(fill="both", expand=True, pady=(0, 4))
-        self.notes_text.bind("<KeyPress>", self._on_notes_key)
+        # 키마다 클릭음/추가 처리를 하면 한글 IME 조합이 밀리므로 바인딩하지 않는다.
 
         self.action_slot = tk.Frame(card, bg=CARD)
         self.action_slot.pack(fill="x")
@@ -841,11 +845,13 @@ class QuizAlertApp:
         if not self.quiz_open or self.overlay is None:
             return
         try:
+            # 필기 중 lift/포커스 조작은 커서 깜빡임·한글 조합을 깨뜨린다
+            if self._notes_has_focus():
+                self.keep_job = self.root.after(500, self._keep_on_top)
+                return
             self.overlay.lift()
             self.overlay.attributes("-topmost", True)
-            # 필기 중에는 포커스를 빼앗지 않는다
-            if not self._notes_has_focus():
-                force_foreground(self.overlay.winfo_id())
+            force_foreground(self.overlay.winfo_id())
         except tk.TclError:
             return
         self.keep_job = self.root.after(500, self._keep_on_top)
@@ -854,35 +860,20 @@ class QuizAlertApp:
         if self.notes_text is None:
             return False
         try:
-            return self.root.focus_get() is self.notes_text
+            focused = self.root.focus_get()
+            return focused is self.notes_text
         except tk.TclError:
             return False
 
-    def _on_notes_key(self, event: tk.Event) -> None:
-        skip = {
-            "Shift_L",
-            "Shift_R",
-            "Control_L",
-            "Control_R",
-            "Alt_L",
-            "Alt_R",
-            "Caps_Lock",
-            "Hangul",
-            "Hanja",
-            "Win_L",
-            "Win_R",
-            "Escape",
-        }
-        if event.keysym in skip:
-            return
-        if event.char or event.keysym in ("BackSpace", "Delete", "Return", "Tab", "space", "Left", "Right", "Up", "Down"):
-            if event.keysym in ("Left", "Right", "Up", "Down"):
-                return
-            beep_type()
-
     def _on_key(self, event: tk.Event) -> str | None:
+        # 필기란 또는 IME 조합 중이면 키를 가로채지 않는다
         if self._notes_has_focus():
             return None
+        try:
+            if str(event.widget) == str(self.notes_text):
+                return None
+        except (tk.TclError, AttributeError):
+            pass
         if event.keysym in ("Return", "space"):
             if self.locked:
                 self.close_quiz()
