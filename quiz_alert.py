@@ -53,6 +53,8 @@ BTN = "#222a3a"
 BTN_HOVER = "#2e3850"
 TIP_ROTATE_MS = 20_000
 TIP_ACCENT = "#f8d030"
+SKETCH_BG = "#0e141c"
+SKETCH_LINE = "#3a465e"
 
 
 def enable_dpi_awareness() -> None:
@@ -160,6 +162,232 @@ def set_window_no_activate(hwnd: int) -> None:
         pass
 
 
+class SketchPad:
+    """마우스로 공식을 끄적이는 그림판."""
+
+    _COLORS = (("흰", TEXT), ("노랑", TIP_ACCENT), ("민트", OK))
+    _WIDTHS = (("얇", 2), ("보통", 4), ("굵", 7))
+    _ERASER_W = 18
+
+    def __init__(self, parent: tk.Misc) -> None:
+        self.drawing = False
+        self._last: tuple[int, int] | None = None
+        self._color = TEXT
+        self._width = 4
+        self._eraser = False
+        self._hold_eraser = False
+        self._color_btns: dict[str, tk.Button] = {}
+        self._width_btns: dict[int, tk.Button] = {}
+        self._eraser_btn: tk.Button | None = None
+
+        self.frame = tk.Frame(
+            parent, bg=SKETCH_BG, highlightthickness=1, highlightbackground=SKETCH_LINE
+        )
+        head = tk.Frame(self.frame, bg=SKETCH_BG)
+        head.pack(fill="x", padx=10, pady=(8, 0))
+        tk.Label(
+            head,
+            text="그림판 연습장",
+            fg=TIP_ACCENT,
+            bg=SKETCH_BG,
+            font=("Malgun Gothic", 10, "bold"),
+        ).pack(side="left")
+        tk.Label(
+            head,
+            text="드래그로 공식  ·  우클릭 지우개",
+            fg=MUTED,
+            bg=SKETCH_BG,
+            font=("Malgun Gothic", 8),
+        ).pack(side="left", padx=(8, 0))
+
+        tools = tk.Frame(self.frame, bg=SKETCH_BG)
+        tools.pack(fill="x", padx=10, pady=(6, 0))
+
+        for name, color in self._COLORS:
+            btn = tk.Button(
+                tools,
+                text=name,
+                command=lambda c=color: self._set_pen(c),
+                bg=BTN,
+                fg=TEXT,
+                activebackground=BTN_HOVER,
+                activeforeground=TEXT,
+                relief="flat",
+                bd=0,
+                padx=8,
+                pady=2,
+                cursor="hand2",
+                font=("Malgun Gothic", 9, "bold"),
+            )
+            btn.pack(side="left", padx=(0, 4))
+            self._color_btns[color] = btn
+
+        tk.Frame(tools, bg=SKETCH_LINE, width=1).pack(side="left", fill="y", padx=6, pady=2)
+
+        for name, width in self._WIDTHS:
+            btn = tk.Button(
+                tools,
+                text=name,
+                command=lambda w=width: self._set_width(w),
+                bg=BTN,
+                fg=TEXT,
+                activebackground=BTN_HOVER,
+                activeforeground=TEXT,
+                relief="flat",
+                bd=0,
+                padx=8,
+                pady=2,
+                cursor="hand2",
+                font=("Malgun Gothic", 9),
+            )
+            btn.pack(side="left", padx=(0, 4))
+            self._width_btns[width] = btn
+
+        tk.Frame(tools, bg=SKETCH_LINE, width=1).pack(side="left", fill="y", padx=6, pady=2)
+
+        self._eraser_btn = tk.Button(
+            tools,
+            text="지우개",
+            command=self._set_eraser,
+            bg=BTN,
+            fg=TEXT,
+            activebackground=BTN_HOVER,
+            activeforeground=TEXT,
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            font=("Malgun Gothic", 9),
+        )
+        self._eraser_btn.pack(side="left", padx=(0, 4))
+
+        tk.Button(
+            tools,
+            text="전체 지우기",
+            command=self.clear,
+            bg="#3a2430",
+            fg=TEXT,
+            activebackground=WRONG,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            font=("Malgun Gothic", 9, "bold"),
+        ).pack(side="right")
+
+        self.canvas = tk.Canvas(
+            self.frame,
+            bg=SKETCH_BG,
+            highlightthickness=0,
+            bd=0,
+            height=200,
+            cursor="crosshair",
+        )
+        self.canvas.pack(fill="both", expand=True, padx=8, pady=(6, 8))
+        self.canvas.bind("<ButtonPress-1>", self._on_down)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_up)
+        self.canvas.bind("<ButtonPress-3>", self._on_right_down)
+        self.canvas.bind("<B3-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-3>", self._on_right_up)
+        self._refresh_tools()
+
+    def clear(self) -> None:
+        self.canvas.delete("all")
+        self.drawing = False
+        self._last = None
+
+    def _set_pen(self, color: str) -> None:
+        self._color = color
+        self._eraser = False
+        self.canvas.configure(cursor=self._cursor())
+        self._refresh_tools()
+
+    def _set_width(self, width: int) -> None:
+        self._width = width
+        if self._eraser:
+            self._eraser = False
+            self.canvas.configure(cursor=self._cursor())
+        self._refresh_tools()
+
+    def _set_eraser(self) -> None:
+        self._eraser = True
+        self.canvas.configure(cursor=self._cursor())
+        self._refresh_tools()
+
+    def _cursor(self) -> str:
+        return "crosshair"
+
+    def _refresh_tools(self) -> None:
+        for color, btn in self._color_btns.items():
+            on = (not self._eraser) and color == self._color
+            btn.configure(bg=ACCENT if on else BTN, fg="white" if on else TEXT)
+        for width, btn in self._width_btns.items():
+            on = (not self._eraser) and width == self._width
+            btn.configure(bg="#3a4a6a" if on else BTN, fg="white" if on else TEXT)
+        if self._eraser_btn is not None:
+            on = self._eraser
+            self._eraser_btn.configure(bg="#5a3a48" if on else BTN, fg="white" if on else TEXT)
+
+    def _ink(self) -> tuple[str, int]:
+        if self._eraser or self._hold_eraser:
+            return SKETCH_BG, self._ERASER_W
+        return self._color, self._width
+
+    def _dot(self, x: int, y: int) -> None:
+        color, width = self._ink()
+        r = max(1, width / 2)
+        self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=color, outline=color)
+
+    def _stroke(self, x: int, y: int) -> None:
+        if self._last is None:
+            self._dot(x, y)
+            self._last = (x, y)
+            return
+        x0, y0 = self._last
+        color, width = self._ink()
+        self.canvas.create_line(
+            x0,
+            y0,
+            x,
+            y,
+            fill=color,
+            width=width,
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            smooth=True,
+        )
+        self._last = (x, y)
+
+    def _on_down(self, event: tk.Event) -> None:
+        self.drawing = True
+        self._last = (event.x, event.y)
+        self._dot(event.x, event.y)
+
+    def _on_drag(self, event: tk.Event) -> None:
+        if not self.drawing:
+            return
+        self._stroke(event.x, event.y)
+
+    def _on_up(self, _event: tk.Event) -> None:
+        self.drawing = False
+        self._last = None
+
+    def _on_right_down(self, event: tk.Event) -> None:
+        self._hold_eraser = True
+        self.drawing = True
+        self._last = (event.x, event.y)
+        self._dot(event.x, event.y)
+
+    def _on_right_up(self, _event: tk.Event) -> None:
+        self._hold_eraser = False
+        self.drawing = False
+        self._last = None
+
+
 def question_key(item: dict) -> str:
     return str(item.get("q", "")).strip()
 
@@ -263,6 +491,7 @@ class QuizAlertApp:
         self.explain_text: tk.Text | None = None
         self.notes_frame: tk.Frame | None = None
         self.notes_text: tk.Text | None = None
+        self.sketch_pad: SketchPad | None = None
         self.close_btn: tk.Button | None = None
         self.current_item: dict | None = None
         self.locked = False  # 풀이 확인 후 True → 닫기 가능
@@ -472,7 +701,10 @@ class QuizAlertApp:
         """화면 기준으로 잘리지 않게 맞출 최대 가로·세로. pane=left/right 는 좌우 분할용."""
         sw = max(640, self.root.winfo_screenwidth())
         sh = max(480, self.root.winfo_screenheight())
-        if pane in ("left", "right", "split"):
+        if pane == "right":
+            # 해설 옆에 그림판이 들어가도록 세로를 조금 줄인다
+            return max(360, int(sw * 0.40)), max(240, int(sh * 0.36))
+        if pane in ("left", "split"):
             # 좌·우 각각 ~44% 폭, 세로 ~62% — 문제/해설을 크게 나란히 표시
             return max(420, int(sw * 0.44)), max(360, int(sh * 0.62))
         return max(640, int(sw * 0.78)), max(280, int(sh * 0.42))
@@ -567,6 +799,7 @@ class QuizAlertApp:
         assert self.explain_text is not None
         assert self.notes_frame is not None
         assert self.notes_text is not None
+        assert self.sketch_pad is not None
         assert self.close_btn is not None
 
         self.source_label.configure(text=item.get("source", "9급 전기직 기출"))
@@ -611,7 +844,7 @@ class QuizAlertApp:
             self.question_label.configure(text=item.get("q", ""))
 
         self.feedback.configure(
-            text="필기란에 자유롭게 타이핑하세요. 풀이를 확인해야 창을 닫을 수 있습니다.",
+            text="오른쪽에 마우스로 공식을 그리거나 타이핑하세요. 풀이를 확인해야 창을 닫을 수 있습니다.",
             fg=MUTED,
         )
         self.reveal_btn.configure(state="normal")
@@ -625,8 +858,10 @@ class QuizAlertApp:
             self.explain_image_label.pack_forget()
             self.explain_image_label.configure(image="", text="")
         self.notes_text.delete("1.0", "end")
+        self.sketch_pad.clear()
         self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
-        self.notes_frame.pack(fill="x", pady=(10, 0))
+        self.sketch_pad.frame.pack(fill="both", expand=True, pady=(10, 0))
+        self.notes_frame.pack(fill="x", pady=(8, 0))
         self.close_btn.place_forget()
 
         self._cover_all_screens()
@@ -760,7 +995,7 @@ class QuizAlertApp:
         self.explain_image_label = tk.Label(self.explain_frame, bg="#121826", bd=0)
         self.explain_text = tk.Text(
             self.explain_frame,
-            height=8,
+            height=4,
             width=48,
             wrap="word",
             bg="#121826",
@@ -774,6 +1009,8 @@ class QuizAlertApp:
         self.explain_text.pack(fill="both", expand=True)
         self.explain_text.configure(state="disabled")
 
+        self.sketch_pad = SketchPad(self.right_pane)
+
         self.notes_frame = tk.Frame(
             self.right_pane, bg="#10161f", highlightthickness=1, highlightbackground="#3a465e"
         )
@@ -784,10 +1021,10 @@ class QuizAlertApp:
             bg="#10161f",
             font=("Malgun Gothic", 10, "bold"),
         )
-        notes_head.pack(anchor="w", padx=12, pady=(10, 0))
+        notes_head.pack(anchor="w", padx=12, pady=(8, 0))
         self.notes_text = tk.Text(
             self.notes_frame,
-            height=6,
+            height=3,
             width=48,
             wrap="word",
             bg="#10161f",
@@ -829,7 +1066,7 @@ class QuizAlertApp:
 
         tk.Label(
             card,
-            text="필기는 언제든 가능합니다.  풀이 보기 후 Enter/Space 로 닫을 수 있습니다.",
+            text="연습장에 마우스로 공식을 그릴 수 있습니다.  풀이 보기 후 Enter/Space 로 닫을 수 있습니다.",
             fg="#667085",
             bg=CARD,
             font=("Malgun Gothic", 9),
@@ -857,13 +1094,17 @@ class QuizAlertApp:
         self.keep_job = self.root.after(500, self._keep_on_top)
 
     def _notes_has_focus(self) -> bool:
-        if self.notes_text is None:
-            return False
+        if self.sketch_pad is not None and self.sketch_pad.drawing:
+            return True
         try:
             focused = self.root.focus_get()
-            return focused is self.notes_text
         except tk.TclError:
             return False
+        if self.notes_text is not None and focused is self.notes_text:
+            return True
+        if self.sketch_pad is not None and focused is self.sketch_pad.canvas:
+            return True
+        return False
 
     def _on_key(self, event: tk.Event) -> str | None:
         # 필기란 또는 IME 조합 중이면 키를 가로채지 않는다
@@ -906,6 +1147,7 @@ class QuizAlertApp:
         assert self.explain_text is not None
         assert self.notes_frame is not None
         assert self.notes_text is not None
+        assert self.sketch_pad is not None
         assert self.close_btn is not None
         item = self.current_item or {}
         text = item.get("explain") or ""
@@ -941,9 +1183,10 @@ class QuizAlertApp:
         self.explain_text.delete("1.0", "end")
         self.explain_text.insert("1.0", text)
         self.explain_text.configure(state="disabled")
-        # 필기 내용은 지우지 않는다 — 처음부터 타이핑 가능
+        # 필기·그림은 지우지 않는다 — 처음부터 끄적일 수 있음
         self.explain_frame.pack(fill="both", expand=True, pady=(0, 0))
-        self.notes_frame.pack(fill="x", pady=(10, 0))
+        self.sketch_pad.frame.pack(fill="both", expand=True, pady=(10, 0))
+        self.notes_frame.pack(fill="x", pady=(8, 0))
         self._place_close_btn()
         self.notes_text.focus_set()
 
